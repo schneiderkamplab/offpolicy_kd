@@ -10,18 +10,16 @@ device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cp
 tokenizer = AutoTokenizer.from_pretrained(MODEL_KEY)
 
 # Load pre-trained model
-teacher_model = AutoModelForCausalLM.from_pretrained(MODEL_KEY)
+teacher_model = AutoModelForCausalLM.from_pretrained(MODEL_KEY).to(device)
 
 # Init a fresh model
 student_config = Gemma3Config.from_pretrained(MODEL_KEY)
-student_model = Gemma3ForCausalLM(config=student_config)
+student_model = Gemma3ForCausalLM(config=student_config).to(device)
 print(student_model)
 
 
 # Load the dataset
 dataset = load_dataset("DDSC/europarl", split="train")
-
-
 print(dataset)
 
 
@@ -34,7 +32,6 @@ distillation_alpha = 1.0
 step = 0
 for batch in loader:
     optimizer.zero_grad()
-
     # Set max length to model config max length
     inputs = tokenizer(batch["text"], return_tensors="pt", padding=True, truncation=True, max_length=256).to(device)
 
@@ -47,24 +44,15 @@ for batch in loader:
     student_outputs = student_model(**inputs)
     student_logits = student_outputs.logits
 
-    # Compute the distillation loss
-
     # Shifting
     shifted_student_logits = student_logits[:, :-1, :].contiguous()
     shifted_teacher_logits = teacher_logits[:, :-1, :].contiguous()
     shifted_labels = inputs["input_ids"][:, 1:].contiguous()
 
-    # LM Loss
-    vocab_size = student_config.vocab_size
-    # print("Shifted student logits shape", shifted_student_logits.shape)
-    # print("Shifted labels shape", shifted_labels.shape)
+    # Language modeling loss (flatten out seq dimension)
+    language_modeling_loss = criterion(shifted_student_logits.view(-1, shifted_student_logits.size(-1)), shifted_labels.view(-1))
 
-    # Language modeling loss
-    # (flatten out seq dimension)
-    language_modeling_loss = criterion(shifted_student_logits.view(-1, vocab_size), shifted_labels.view(-1))
-
-    # Distillation loss
-    # (flatten out seq dimension)
+    # Distillation loss (flatten out seq dimension)
     distillation_loss = distillation_objective(shifted_student_logits.view(-1, student_config.vocab_size), shifted_teacher_logits.view(-1, student_config.vocab_size))
 
 
