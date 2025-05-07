@@ -2,6 +2,7 @@
 
 import os
 import click
+import math
 import torch
 import torch.nn.functional as F
 from datasets import load_dataset, concatenate_datasets
@@ -16,8 +17,10 @@ def prepare_dataset(data_files):
     for f in sorted(data_files):
         try:
             ds = load_dataset("json", data_files=f, split="train")
-            if "id" in ds.column_names and "text" in ds.column_names:
-                ds = ds.remove_columns([col for col in ds.column_names if col not in {"id", "text"}])
+#            if "id" in ds.column_names and "text" in ds.column_names:
+#                ds = ds.remove_columns([col for col in ds.column_names if col not in {"id", "text"}])
+            if "text" in ds.column_names:
+                ds = ds.remove_columns([col for col in ds.column_names if col not in {"text"}])
                 datasets.append(ds)
             else:
                 print(f"⚠️ Missing 'id' or 'text' in: {f}")
@@ -27,7 +30,7 @@ def prepare_dataset(data_files):
 
 
 def calculate_perplexity(loss):
-    return torch.exp(loss)
+    return math.exp(loss)
 
 
 def calculate_accuracy(preds, labels):
@@ -36,13 +39,13 @@ def calculate_accuracy(preds, labels):
     return correct / total
 
 
-def evaluate(model, loader, tokenizer, teacher_model, device, ce_loss_fn, kl_loss_fn, alpha, name="Validation"):
+def evaluate(model, loader, tokenizer, teacher_model, device, ce_loss_fn, kl_loss_fn, alpha, name="Validation", val_steps=10):
     model.eval()
     total_loss, total_ce, total_kl, total_acc = 0, 0, 0, 0
     count = 0
 
     with torch.no_grad():
-        for batch in loader:
+        for i, batch in zip(range(val_steps),loader):
             inputs = tokenizer(batch["text"], return_tensors="pt", padding=True, truncation=True, max_length=256)
             input_ids = inputs["input_ids"].to(device)
             attention_mask = inputs["attention_mask"].to(device)
@@ -83,8 +86,8 @@ def evaluate(model, loader, tokenizer, teacher_model, device, ce_loss_fn, kl_los
 
 @click.command()
 @click.argument('data_files', nargs=-1, type=click.Path(exists=True))
-@click.option('--teacher', default="google/gemma-3-1b-pt", help="Teacher model identifier")
-@click.option('--student', default=None, help="Student model identifier (defaults to teacher)")
+@click.option('--student', default="google/gemma-3-1b-pt", help="Student model identifier")
+@click.option('--teacher', default="google/gemma-3-4b-pt", help="Teacher model identifier")
 @click.option('--pretrained', is_flag=True, help="Initialize student from pretrained model instead of fresh config")
 def main(data_files, teacher, student, pretrained):
     if not data_files:
@@ -106,9 +109,9 @@ def main(data_files, teacher, student, pretrained):
     dataset = prepare_dataset(data_files).shuffle(seed=42)
     split = dataset.train_test_split(test_size=0.1, seed=42)
     val_test = split["test"].train_test_split(test_size=0.5)
-    train_loader = torch.utils.data.DataLoader(split["train"], batch_size=4, shuffle=True)
-    val_loader = torch.utils.data.DataLoader(val_test["train"], batch_size=4)
-    test_loader = torch.utils.data.DataLoader(val_test["test"], batch_size=4)
+    train_loader = torch.utils.data.DataLoader(split["train"], batch_size=1, shuffle=True)
+    val_loader = torch.utils.data.DataLoader(val_test["train"], batch_size=1)
+    test_loader = torch.utils.data.DataLoader(val_test["test"], batch_size=1)
 
     ce_loss_fn = torch.nn.CrossEntropyLoss()
     kl_loss_fn = torch.nn.KLDivLoss(reduction="batchmean")
@@ -116,6 +119,7 @@ def main(data_files, teacher, student, pretrained):
 
     alpha = 1.0
     val_every = 100
+    val_steps = 10
     save_every = 200
     save_path = "./checkpoints"
     os.makedirs(save_path, exist_ok=True)
@@ -160,7 +164,7 @@ def main(data_files, teacher, student, pretrained):
                 print(f"[Step {step}] Loss: {loss.item():.4f}, CE: {ce_loss.item():.4f}, KL: {kl_loss.item():.4f}")
 
             if step % val_every == 0:
-                val_loss, val_acc, val_ppl = evaluate(student_model, val_loader, tokenizer, teacher_model, device, ce_loss_fn, kl_loss_fn, alpha)
+                val_loss, val_acc, val_ppl = evaluate(student_model, val_loader, tokenizer, teacher_model, device, ce_loss_fn, kl_loss_fn, alpha, val_steps=val_steps)
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
                     patience_counter = 0
