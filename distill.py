@@ -1,8 +1,9 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 
-import os
 import click
+import gc
 import math
+import os
 import torch
 import torch.nn.functional as F
 from datasets import load_dataset, concatenate_datasets
@@ -62,7 +63,7 @@ def evaluate(model, loader, tokenizer, teacher_model, device, ce_loss_fn, kl_los
             labels_flat = labels.view(-1)
 
             ce_loss = ce_loss_fn(student_flat, labels_flat)
-            kl_loss = kl_loss_fn(F.log_softmax(student_flat, dim=-1), F.softmax(teacher_flat, dim=-1))
+            kl_loss = kl_loss_fn(F.log_softmax(student_flat, dim=-1), F.softmax(teacher_flat[:, :student_flat.size(dim=1)], dim=-1))
             loss = alpha * kl_loss + ce_loss
 
             total_loss += loss.item()
@@ -80,6 +81,7 @@ def evaluate(model, loader, tokenizer, teacher_model, device, ce_loss_fn, kl_los
     avg_acc = total_acc / count
     perplexity = calculate_perplexity(avg_ce)
 
+    model.train()
     print(f"{name} — Loss: {avg_loss:.4f}, CE: {avg_ce:.4f}, KL: {avg_kl:.4f}, Acc: {avg_acc:.4f}, PPL: {perplexity:.4f}")
     return avg_loss, avg_acc, perplexity
 
@@ -101,9 +103,10 @@ def main(data_files, teacher, student, pretrained):
     teacher_model = AutoModelForCausalLM.from_pretrained(teacher).to(device)
 
     if pretrained:
-        student_model = AutoModelForCausalLM.from_pretrained(student).to(device)
+        student_model = AutoModelForCausalLM.from_pretrained(student, attn_implementation="eager").to(device)
     else:
         student_config = Gemma3Config.from_pretrained(student)
+        student_config["attn_implementation"] = "eager"
         student_model = Gemma3ForCausalLM(config=student_config).to(device)
 
     dataset = prepare_dataset(data_files).shuffle(seed=42)
@@ -128,12 +131,13 @@ def main(data_files, teacher, student, pretrained):
     patience = 10
     patience_counter = 0
     step = 0
-    num_epochs = 1
+    num_epochs = 280
 
     student_model.train()
+    teacher_model.eval()
     for epoch in range(num_epochs):
         for batch in train_loader:
-            optimizer.zero_grad()
+            student_model.zero_grad()
 
             inputs = tokenizer(batch["text"], return_tensors="pt", padding=True, truncation=True, max_length=256)
             input_ids = inputs["input_ids"].to(device)
@@ -153,7 +157,7 @@ def main(data_files, teacher, student, pretrained):
             labels_flat = labels.view(-1)
 
             ce_loss = ce_loss_fn(student_flat, labels_flat)
-            kl_loss = kl_loss_fn(F.log_softmax(student_flat, dim=-1), F.softmax(teacher_flat, dim=-1))
+            kl_loss = kl_loss_fn(F.log_softmax(student_flat, dim=-1), F.softmax(teacher_flat[:, :student_flat.size(dim=1)], dim=-1))
             loss = alpha * kl_loss + ce_loss
 
             loss.backward()
@@ -162,6 +166,10 @@ def main(data_files, teacher, student, pretrained):
             step += 1
             if step % 10 == 0:
                 print(f"[Step {step}] Loss: {loss.item():.4f}, CE: {ce_loss.item():.4f}, KL: {kl_loss.item():.4f}")
+
+            del input_ids, attention_mask, teacher_logits, student_logits
+            del student_flat, teacher_flat, labels, labels_flat
+            del ce_loss, kl_loss, loss
 
             if step % val_every == 0:
                 val_loss, val_acc, val_ppl = evaluate(student_model, val_loader, tokenizer, teacher_model, device, ce_loss_fn, kl_loss_fn, alpha, val_steps=val_steps)
@@ -177,6 +185,14 @@ def main(data_files, teacher, student, pretrained):
                 if patience_counter >= patience:
                     print("⏹️ Early stopping triggered.")
                     break
+            print("Clearing memory ...")
+            gc.collect()
+            if torch.cuda.is_available():
+                print("Clearing CUDA cache ...")
+                torch.cuda.empty_cache()
+            if torch.backends.mps.is_available():
+                print("Clearing MPS cache ...")
+                torch.mps.empty_cache()
         if patience_counter >= patience:
             break
 
