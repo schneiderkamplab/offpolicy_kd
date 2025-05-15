@@ -6,6 +6,8 @@ import math
 import os
 import torch
 import torch.nn.functional as F
+import json
+
 from datasets import load_dataset, concatenate_datasets
 from transformers import (
     AutoModelForCausalLM, AutoTokenizer,
@@ -83,7 +85,7 @@ def evaluate(model, loader, tokenizer, teacher_model, device, ce_loss_fn, kl_los
 
     model.train()
     print(f"{name} — Loss: {avg_loss:.4f}, CE: {avg_ce:.4f}, KL: {avg_kl:.4f}, Acc: {avg_acc:.4f}, PPL: {perplexity:.4f}")
-    return avg_loss, avg_acc, perplexity
+    return avg_loss, avg_ce, avg_kl, avg_acc, perplexity
 
 
 @click.command()
@@ -106,7 +108,7 @@ def main(data_files, teacher, student, pretrained):
         student_model = AutoModelForCausalLM.from_pretrained(student, attn_implementation="eager").to(device)
     else:
         student_config = Gemma3Config.from_pretrained(student)
-        student_config["attn_implementation"] = "eager"
+        student_config.attn_implementation = "eager"
         student_model = Gemma3ForCausalLM(config=student_config).to(device)
 
     dataset = prepare_dataset(data_files).shuffle(seed=42)
@@ -132,6 +134,15 @@ def main(data_files, teacher, student, pretrained):
     patience_counter = 0
     step = 0
     num_epochs = 280
+
+    ce_loss_history = []
+    kl_loss_history = []
+    total_loss_history = []
+
+    val_loss_history = []
+    val_ce_loss_history = []
+    val_kl_loss_history = []
+
 
     student_model.train()
     teacher_model.eval()
@@ -167,12 +178,21 @@ def main(data_files, teacher, student, pretrained):
             if step % 10 == 0:
                 print(f"[Step {step}] Loss: {loss.item():.4f}, CE: {ce_loss.item():.4f}, KL: {kl_loss.item():.4f}")
 
+            ce_loss_history.append(ce_loss.item())
+            kl_loss_history.append(kl_loss.item())
+            total_loss_history.append(loss.item())
+
+
             del input_ids, attention_mask, teacher_logits, student_logits
             del student_flat, teacher_flat, labels, labels_flat
             del ce_loss, kl_loss, loss
 
             if step % val_every == 0:
-                val_loss, val_acc, val_ppl = evaluate(student_model, val_loader, tokenizer, teacher_model, device, ce_loss_fn, kl_loss_fn, alpha, val_steps=val_steps)
+                val_loss, val_loss_ce, val_loss_kl, val_acc, val_ppl = evaluate(student_model, val_loader, tokenizer, teacher_model, device, ce_loss_fn, kl_loss_fn, alpha, val_steps=val_steps)
+                val_loss_history.append(val_loss)
+                val_ce_loss_history.append(val_loss_ce.item())
+                val_kl_loss_history.append(val_loss_kl.item())
+
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
                     patience_counter = 0
@@ -185,20 +205,38 @@ def main(data_files, teacher, student, pretrained):
                 if patience_counter >= patience:
                     print("⏹️ Early stopping triggered.")
                     break
-            print("Clearing memory ...")
+            #print("Clearing memory ...")
             gc.collect()
             if torch.cuda.is_available():
-                print("Clearing CUDA cache ...")
+                #print("Clearing CUDA cache ...")
                 torch.cuda.empty_cache()
             if torch.backends.mps.is_available():
-                print("Clearing MPS cache ...")
+                #print("Clearing MPS cache ...")
                 torch.mps.empty_cache()
         if patience_counter >= patience:
             break
 
-    print("🔍 Final Evaluation on Test Set...")
-    evaluate(student_model, test_loader, tokenizer, teacher_model, device, ce_loss_fn, kl_loss_fn, alpha, name="Test")
+    with open("train_loss.json", "w") as f:
+        json.dump({
+            "ce_loss": ce_loss_history,
+            "kl_loss": kl_loss_history,
+            "total_loss": total_loss_history
+        }, f)
 
+    with open("val_loss.json", "w") as f:
+        json.dump({
+            "loss": total_loss_history,
+            "ce_loss": val_ce_loss_history,
+            "kl_loss": val_kl_loss_history
+        }, f)
+
+    print("🔍 Final Evaluation on Test Set...")
+
+    test_loss, test_acc, test_ppl = evaluate(student_model, test_loader, tokenizer, teacher_model, device,ce_loss_fn, kl_loss_fn, alpha, name="Test")
+    with open("test_loss.json", "w") as f:
+        json.dump({
+            "loss": test_loss
+        }, f)
 
 if __name__ == "__main__":
     main()
