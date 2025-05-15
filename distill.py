@@ -149,6 +149,8 @@ def main(data_files, teacher, student, pretrained, distillation):
     val_loss_history = []
     val_ce_loss_history = []
     val_kl_loss_history = []
+    val_ppl_history = []
+    val_acc_history = []
 
 
     student_model.train()
@@ -212,12 +214,16 @@ def main(data_files, teacher, student, pretrained, distillation):
                 val_loss_history.append(val_loss)
                 val_ce_loss_history.append(val_loss_ce)
                 val_kl_loss_history.append(val_loss_kl)
+                val_ppl_history.append(val_ppl)
+                val_acc_history.append(val_acc)
 
                 with open(f"val_loss_distill_{distillation}.json", "w") as f:
                     json.dump({
                         "loss": total_loss_history,
                         "ce_loss": val_ce_loss_history,
-                        "kl_loss": val_kl_loss_history
+                        "kl_loss": val_kl_loss_history,
+                        "val_ppl": val_ppl_history,
+                        "val_acc": val_acc_history
                     }, f)
 
                 if val_loss < best_val_loss:
@@ -252,7 +258,9 @@ def main(data_files, teacher, student, pretrained, distillation):
     test_loss, test_acc, test_ppl = evaluate(distillation, student_model, test_loader, tokenizer, teacher_model, device,ce_loss_fn, kl_loss_fn, alpha, name="Test")
     with open("test_loss.json", "w") as f:
         json.dump({
-            "loss": test_loss
+            "loss": test_loss,
+            "test_acc": test_acc,
+            "test_ppl": test_ppl
         }, f)
 
 if __name__ == "__main__":
