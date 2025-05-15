@@ -134,7 +134,7 @@ def main(data_files, teacher, student, pretrained):
     patience_counter = 0
     step = 0
     num_epochs = 1
-    total_steps = 5000
+    
 
     ce_loss_history = []
     kl_loss_history = []
@@ -149,74 +149,73 @@ def main(data_files, teacher, student, pretrained):
     teacher_model.eval()
     for epoch in range(num_epochs):
         for batch in train_loader:
-            while step<=total_steps:
-                student_model.zero_grad()
+            student_model.zero_grad()
 
-                inputs = tokenizer(batch["text"], return_tensors="pt", padding=True, truncation=True, max_length=256)
-                input_ids = inputs["input_ids"].to(device)
-                attention_mask = inputs["attention_mask"].to(device)
+            inputs = tokenizer(batch["text"], return_tensors="pt", padding=True, truncation=True, max_length=256)
+            input_ids = inputs["input_ids"].to(device)
+            attention_mask = inputs["attention_mask"].to(device)
 
-                with torch.no_grad():
-                    teacher_logits = teacher_model(input_ids=input_ids, attention_mask=attention_mask).logits
+            with torch.no_grad():
+                teacher_logits = teacher_model(input_ids=input_ids, attention_mask=attention_mask).logits
 
-                student_logits = student_model(input_ids=input_ids, attention_mask=attention_mask).logits
+            student_logits = student_model(input_ids=input_ids, attention_mask=attention_mask).logits
 
-                student_logits = student_logits[:, :-1, :].contiguous()
-                teacher_logits = teacher_logits[:, :-1, :].contiguous()
-                labels = input_ids[:, 1:].contiguous()
+            student_logits = student_logits[:, :-1, :].contiguous()
+            teacher_logits = teacher_logits[:, :-1, :].contiguous()
+            labels = input_ids[:, 1:].contiguous()
 
-                student_flat = student_logits.view(-1, student_logits.size(-1))
-                teacher_flat = teacher_logits.view(-1, teacher_logits.size(-1))
-                labels_flat = labels.view(-1)
+            student_flat = student_logits.view(-1, student_logits.size(-1))
+            teacher_flat = teacher_logits.view(-1, teacher_logits.size(-1))
+            labels_flat = labels.view(-1)
 
-                ce_loss = ce_loss_fn(student_flat, labels_flat)
-                kl_loss = kl_loss_fn(F.log_softmax(student_flat, dim=-1), F.softmax(teacher_flat[:, :student_flat.size(dim=1)], dim=-1))
-                loss = alpha * kl_loss + ce_loss
+            ce_loss = ce_loss_fn(student_flat, labels_flat)
+            kl_loss = kl_loss_fn(F.log_softmax(student_flat, dim=-1), F.softmax(teacher_flat[:, :student_flat.size(dim=1)], dim=-1))
+            loss = alpha * kl_loss + ce_loss
 
-                loss.backward()
-                optimizer.step()
+            loss.backward()
+            optimizer.step()
 
-                step += 1
-                if step % 10 == 0:
-                    print(f"[Step {step}] Loss: {loss.item():.4f}, CE: {ce_loss.item():.4f}, KL: {kl_loss.item():.4f}")
+            step += 1
+            if step % 10 == 0:
+                print(f"[Step {step}] Loss: {loss.item():.4f}, CE: {ce_loss.item():.4f}, KL: {kl_loss.item():.4f}")
 
-                ce_loss_history.append(ce_loss.item())
-                kl_loss_history.append(kl_loss.item())
-                total_loss_history.append(loss.item())
+            ce_loss_history.append(ce_loss.item())
+            kl_loss_history.append(kl_loss.item())
+            total_loss_history.append(loss.item())
 
 
-                del input_ids, attention_mask, teacher_logits, student_logits
-                del student_flat, teacher_flat, labels, labels_flat
-                del ce_loss, kl_loss, loss
+            del input_ids, attention_mask, teacher_logits, student_logits
+            del student_flat, teacher_flat, labels, labels_flat
+            del ce_loss, kl_loss, loss
 
-                if step % val_every == 0:
-                    val_loss, val_loss_ce, val_loss_kl, val_acc, val_ppl = evaluate(student_model, val_loader, tokenizer, teacher_model, device, ce_loss_fn, kl_loss_fn, alpha, val_steps=val_steps)
-                    val_loss_history.append(val_loss)
-                    val_ce_loss_history.append(val_loss_ce)
-                    val_kl_loss_history.append(val_loss_kl)
+            if step % val_every == 0:
+                val_loss, val_loss_ce, val_loss_kl, val_acc, val_ppl = evaluate(student_model, val_loader, tokenizer, teacher_model, device, ce_loss_fn, kl_loss_fn, alpha, val_steps=val_steps)
+                val_loss_history.append(val_loss)
+                val_ce_loss_history.append(val_loss_ce)
+                val_kl_loss_history.append(val_loss_kl)
 
-                    if val_loss < best_val_loss:
-                        best_val_loss = val_loss
-                        patience_counter = 0
-                        if step % save_every == 0:
-                            checkpoint_file = os.path.join(save_path, f"student_step{step}.pt")
-                            torch.save(student_model.state_dict(), checkpoint_file)
-                            print(f"✅ Saved checkpoint: {checkpoint_file}")
-                    else:
-                        patience_counter += 1
-                    if patience_counter >= patience:
-                        print("⏹️ Early stopping triggered.")
-                        break
-                #print("Clearing memory ...")
-                gc.collect()
-                if torch.cuda.is_available():
-                    #print("Clearing CUDA cache ...")
-                    torch.cuda.empty_cache()
-                if torch.backends.mps.is_available():
-                    #print("Clearing MPS cache ...")
-                    torch.mps.empty_cache()
-            if patience_counter >= patience:
-                break
+                if val_loss < best_val_loss:
+                    best_val_loss = val_loss
+                    patience_counter = 0
+                    if step % save_every == 0:
+                        checkpoint_file = os.path.join(save_path, f"student_step{step}.pt")
+                        torch.save(student_model.state_dict(), checkpoint_file)
+                        print(f"✅ Saved checkpoint: {checkpoint_file}")
+                else:
+                    patience_counter += 1
+                if patience_counter >= patience:
+                    print("⏹️ Early stopping triggered.")
+                    break
+            #print("Clearing memory ...")
+            gc.collect()
+            if torch.cuda.is_available():
+                #print("Clearing CUDA cache ...")
+                torch.cuda.empty_cache()
+            if torch.backends.mps.is_available():
+                #print("Clearing MPS cache ...")
+                torch.mps.empty_cache()
+        if patience_counter >= patience:
+            break
 
     with open("train_loss.json", "w") as f:
         json.dump({
