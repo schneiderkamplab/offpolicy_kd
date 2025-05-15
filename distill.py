@@ -42,7 +42,7 @@ def calculate_accuracy(preds, labels):
     return correct / total
 
 
-def evaluate(model, loader, tokenizer, teacher_model, device, ce_loss_fn, kl_loss_fn, alpha, name="Validation", val_steps=10):
+def evaluate(distillation, model, loader, tokenizer, teacher_model, device, ce_loss_fn, kl_loss_fn, alpha, name="Validation", val_steps=10):
     model.eval()
     total_loss, total_ce, total_kl, total_acc = 0, 0, 0, 0
     count = 0
@@ -53,19 +53,22 @@ def evaluate(model, loader, tokenizer, teacher_model, device, ce_loss_fn, kl_los
             input_ids = inputs["input_ids"].to(device)
             attention_mask = inputs["attention_mask"].to(device)
 
-            teacher_logits = teacher_model(input_ids=input_ids, attention_mask=attention_mask).logits
+            if distillation:
+                teacher_logits = teacher_model(input_ids=input_ids, attention_mask=attention_mask).logits
+                teacher_logits = teacher_logits[:, :-1, :].contiguous()
+                teacher_flat = teacher_logits.view(-1, teacher_logits.size(-1))
+            
             student_logits = model(input_ids=input_ids, attention_mask=attention_mask).logits
-
             student_logits = student_logits[:, :-1, :].contiguous()
-            teacher_logits = teacher_logits[:, :-1, :].contiguous()
             labels = input_ids[:, 1:].contiguous()
-
             student_flat = student_logits.view(-1, student_logits.size(-1))
-            teacher_flat = teacher_logits.view(-1, teacher_logits.size(-1))
             labels_flat = labels.view(-1)
 
             ce_loss = ce_loss_fn(student_flat, labels_flat)
-            kl_loss = kl_loss_fn(F.log_softmax(student_flat, dim=-1), F.softmax(teacher_flat[:, :student_flat.size(dim=1)], dim=-1))
+            if distillation:
+                kl_loss = kl_loss_fn(F.log_softmax(student_flat, dim=-1), F.softmax(teacher_flat[:, :student_flat.size(dim=1)], dim=-1))
+            else:
+                kl_loss = torch.tensor(0)
             loss = alpha * kl_loss + ce_loss
 
             total_loss += loss.item()
@@ -93,7 +96,10 @@ def evaluate(model, loader, tokenizer, teacher_model, device, ce_loss_fn, kl_los
 @click.option('--student', default="google/gemma-3-1b-pt", help="Student model identifier")
 @click.option('--teacher', default="google/gemma-3-4b-pt", help="Teacher model identifier")
 @click.option('--pretrained', is_flag=True, help="Initialize student from pretrained model instead of fresh config")
-def main(data_files, teacher, student, pretrained):
+@click.option('--distillation', is_flag=True, help="Do distillation, otherwise it will only run with student")
+
+
+def main(data_files, teacher, student, pretrained, distillation):
     if not data_files:
         print("Please provide at least one .jsonl.gz file.")
         return
@@ -155,21 +161,24 @@ def main(data_files, teacher, student, pretrained):
             input_ids = inputs["input_ids"].to(device)
             attention_mask = inputs["attention_mask"].to(device)
 
-            with torch.no_grad():
-                teacher_logits = teacher_model(input_ids=input_ids, attention_mask=attention_mask).logits
+            if distillation:
+                with torch.no_grad():
+                    teacher_logits = teacher_model(input_ids=input_ids, attention_mask=attention_mask).logits
+                    teacher_logits = teacher_logits[:, :-1, :].contiguous()
+                    teacher_flat = teacher_logits.view(-1, teacher_logits.size(-1))
 
             student_logits = student_model(input_ids=input_ids, attention_mask=attention_mask).logits
-
             student_logits = student_logits[:, :-1, :].contiguous()
-            teacher_logits = teacher_logits[:, :-1, :].contiguous()
             labels = input_ids[:, 1:].contiguous()
 
             student_flat = student_logits.view(-1, student_logits.size(-1))
-            teacher_flat = teacher_logits.view(-1, teacher_logits.size(-1))
             labels_flat = labels.view(-1)
 
             ce_loss = ce_loss_fn(student_flat, labels_flat)
-            kl_loss = kl_loss_fn(F.log_softmax(student_flat, dim=-1), F.softmax(teacher_flat[:, :student_flat.size(dim=1)], dim=-1))
+            if distillation:
+                kl_loss = kl_loss_fn(F.log_softmax(student_flat, dim=-1), F.softmax(teacher_flat[:, :student_flat.size(dim=1)], dim=-1))
+            else:
+                kl_loss = torch.tensor(0)
             loss = alpha * kl_loss + ce_loss
 
             loss.backward()
@@ -177,22 +186,39 @@ def main(data_files, teacher, student, pretrained):
 
             step += 1
             if step % 10 == 0:
+                
                 print(f"[Step {step}] Loss: {loss.item():.4f}, CE: {ce_loss.item():.4f}, KL: {kl_loss.item():.4f}")
+
+
 
             ce_loss_history.append(ce_loss.item())
             kl_loss_history.append(kl_loss.item())
             total_loss_history.append(loss.item())
+            with open(f"train_loss_distill_{distillation}.json", "w") as f:
+                json.dump({
+                    "ce_loss": ce_loss_history,
+                    "kl_loss": kl_loss_history,
+                    "total_loss": total_loss_history
+                }, f)
 
-
-            del input_ids, attention_mask, teacher_logits, student_logits
-            del student_flat, teacher_flat, labels, labels_flat
+            if distillation:
+                del teacher_logits, teacher_flat
+            del input_ids, attention_mask, student_logits
+            del student_flat,labels, labels_flat
             del ce_loss, kl_loss, loss
 
             if step % val_every == 0:
-                val_loss, val_loss_ce, val_loss_kl, val_acc, val_ppl = evaluate(student_model, val_loader, tokenizer, teacher_model, device, ce_loss_fn, kl_loss_fn, alpha, val_steps=val_steps)
+                val_loss, val_loss_ce, val_loss_kl, val_acc, val_ppl = evaluate(distillation, student_model, val_loader, tokenizer, teacher_model, device, ce_loss_fn, kl_loss_fn, alpha, val_steps=val_steps)
                 val_loss_history.append(val_loss)
                 val_ce_loss_history.append(val_loss_ce)
                 val_kl_loss_history.append(val_loss_kl)
+
+                with open(f"val_loss_distill_{distillation}.json", "w") as f:
+                    json.dump({
+                        "loss": total_loss_history,
+                        "ce_loss": val_ce_loss_history,
+                        "kl_loss": val_kl_loss_history
+                    }, f)
 
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
@@ -217,23 +243,13 @@ def main(data_files, teacher, student, pretrained):
         if patience_counter >= patience:
             break
 
-    with open("train_loss.json", "w") as f:
-        json.dump({
-            "ce_loss": ce_loss_history,
-            "kl_loss": kl_loss_history,
-            "total_loss": total_loss_history
-        }, f)
+    
 
-    with open("val_loss.json", "w") as f:
-        json.dump({
-            "loss": total_loss_history,
-            "ce_loss": val_ce_loss_history,
-            "kl_loss": val_kl_loss_history
-        }, f)
+    
 
     print("🔍 Final Evaluation on Test Set...")
 
-    test_loss, test_acc, test_ppl = evaluate(student_model, test_loader, tokenizer, teacher_model, device,ce_loss_fn, kl_loss_fn, alpha, name="Test")
+    test_loss, test_acc, test_ppl = evaluate(distillation, student_model, test_loader, tokenizer, teacher_model, device,ce_loss_fn, kl_loss_fn, alpha, name="Test")
     with open("test_loss.json", "w") as f:
         json.dump({
             "loss": test_loss
