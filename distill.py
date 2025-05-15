@@ -190,8 +190,8 @@ def main(data_files, teacher, student, pretrained):
             if step % val_every == 0:
                 val_loss, val_loss_ce, val_loss_kl, val_acc, val_ppl = evaluate(student_model, val_loader, tokenizer, teacher_model, device, ce_loss_fn, kl_loss_fn, alpha, val_steps=val_steps)
                 val_loss_history.append(val_loss)
-                val_ce_loss_history.append(val_loss_ce.item())
-                val_kl_loss_history.append(val_loss_kl.item())
+                val_ce_loss_history.append(val_loss_ce)
+                val_kl_loss_history.append(val_loss_kl)
 
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
