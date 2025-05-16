@@ -136,7 +136,7 @@ def main(data_files, teacher, student, pretrained, distillation):
     os.makedirs(save_path, exist_ok=True)
 
     best_val_loss = float("inf")
-    patience = 10
+    patience = 1000
     patience_counter = 0
     step = 0
     num_epochs = 1
@@ -219,7 +219,7 @@ def main(data_files, teacher, student, pretrained, distillation):
 
                 with open(f"val_loss_distill_{distillation}.json", "w") as f:
                     json.dump({
-                        "loss": total_loss_history,
+                        "loss": val_loss_history,
                         "ce_loss": val_ce_loss_history,
                         "kl_loss": val_kl_loss_history,
                         "val_ppl": val_ppl_history,
