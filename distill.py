@@ -10,8 +10,7 @@ import json
 
 from datasets import load_dataset, concatenate_datasets
 from transformers import (
-    AutoModelForCausalLM, AutoTokenizer,
-    Gemma3ForCausalLM, Gemma3Config
+    AutoModelForCausalLM, AutoTokenizer,AutoConfig
 )
 
 
@@ -113,9 +112,9 @@ def main(data_files, teacher, student, pretrained, distillation):
     if pretrained:
         student_model = AutoModelForCausalLM.from_pretrained(student, attn_implementation="eager").to(device)
     else:
-        student_config = Gemma3Config.from_pretrained(student)
+        student_config = AutoConfig.from_pretrained(student)
         student_config.attn_implementation = "eager"
-        student_model = Gemma3ForCausalLM(config=student_config).to(device)
+        student_model = AutoModelForCausalLM.from_config(config).to(device)
 
     dataset = prepare_dataset(data_files).shuffle(seed=42)
     split = dataset.train_test_split(test_size=0.1, seed=42)
