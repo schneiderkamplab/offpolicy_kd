@@ -104,7 +104,15 @@ def main(data_files, teacher, student, pretrained, distillation):
         return
 
     student = student or teacher
-    device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    else:
+        # only test for MPS if the attribute exists
+        mps_backend = getattr(torch.backends, "mps", None)
+        if mps_backend is not None and mps_backend.is_available():
+            device = torch.device("mps")
+        else:
+            device = torch.device("cpu")
 
     tokenizer = AutoTokenizer.from_pretrained(teacher)
     teacher_model = AutoModelForCausalLM.from_pretrained(teacher).to(device)
