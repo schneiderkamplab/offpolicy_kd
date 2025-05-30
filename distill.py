@@ -12,6 +12,9 @@ from datasets import load_dataset, concatenate_datasets
 from transformers import (
     AutoModelForCausalLM, AutoTokenizer,AutoConfig
 )
+from transformers.models.gemma3 import Gemma3Config, Gemma3ForCausalLM
+
+
 
 
 def prepare_dataset(data_files):
@@ -99,6 +102,7 @@ def evaluate(distillation, model, loader, tokenizer, teacher_model, device, ce_l
 
 
 def main(data_files, teacher, student, pretrained, distillation):
+    print('start')
     if not data_files:
         print("Please provide at least one .jsonl.gz file.")
         return
@@ -120,9 +124,9 @@ def main(data_files, teacher, student, pretrained, distillation):
     if pretrained:
         student_model = AutoModelForCausalLM.from_pretrained(student, attn_implementation="eager").to(device)
     else:
-        student_config = AutoConfig.from_pretrained(student)
+        student_config = Gemma3Config.from_pretrained(student)
         student_config.attn_implementation = "eager"
-        student_model = AutoModelForCausalLM.from_config(config).to(device)
+        student_model = Gemma3ForCausalLM(config=student_config).to(device)
 
     dataset = prepare_dataset(data_files).shuffle(seed=42)
     split = dataset.train_test_split(test_size=0.1, seed=42)
@@ -163,6 +167,7 @@ def main(data_files, teacher, student, pretrained, distillation):
     student_model.train()
     teacher_model.eval()
     for epoch in range(num_epochs):
+        print(f"epoch: {epoch}")
         for batch in train_loader:
             student_model.zero_grad()
 
@@ -171,6 +176,7 @@ def main(data_files, teacher, student, pretrained, distillation):
             attention_mask = inputs["attention_mask"].to(device)
 
             if distillation:
+                print("distillation")
                 with torch.no_grad():
                     teacher_logits = teacher_model(input_ids=input_ids, attention_mask=attention_mask).logits
                     teacher_logits = teacher_logits[:, :-1, :].contiguous()
