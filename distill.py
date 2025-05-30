@@ -92,8 +92,8 @@ def evaluate(distillation, model, loader, tokenizer, teacher_model, device, ce_l
 
 @click.command()
 @click.argument('data_files', nargs=-1, type=click.Path(exists=True))
-@click.option('--student', default="google/gemma-3-1b-pt", help="Student model identifier")
-@click.option('--teacher', default="google/gemma-3-4b-pt", help="Teacher model identifier")
+@click.option('--student', default="models/gemma-3-1b-pt", help="Student model identifier")
+@click.option('--teacher', default="models/gemma-3-4b-pt", help="Teacher model identifier")
 @click.option('--pretrained', is_flag=True, help="Initialize student from pretrained model instead of fresh config")
 @click.option('--distillation', is_flag=True, help="Do distillation, otherwise it will only run with student")
 
@@ -114,7 +114,7 @@ def main(data_files, teacher, student, pretrained, distillation):
         else:
             device = torch.device("cpu")
 
-    tokenizer = AutoTokenizer.from_pretrained(teacher)
+    tokenizer = AutoTokenizer.from_pretrained(teacher, use_fast=False)
     teacher_model = AutoModelForCausalLM.from_pretrained(teacher).to(device)
 
     if pretrained:
