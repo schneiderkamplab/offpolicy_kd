@@ -9,11 +9,19 @@ __all__ = [
     'calculate_accuracy',
 ]
 
+# setup utilities
+
 def inc_device(device, increment):
     name, number = str(device).split(":")
     number = int(number) + increment
     device = torch.device(f"{name}:{number}")
     return device
+
+# data utilities
+
+
+
+# training utilities
 
 def collate_fn(batch, max_length=4096):
     input_ids = [torch.tensor(item['input_ids'][:max_length]) for item in batch]

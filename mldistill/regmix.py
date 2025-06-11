@@ -161,16 +161,6 @@ def main(data_files, teacher, student, pretrained, distillation, seed):
     step = 0
     num_epochs = 1
 
-    ce_loss_history = []
-    kl_loss_history = []
-    total_loss_history = []
-
-    val_loss_history = []
-    val_ce_loss_history = []
-    val_kl_loss_history = []
-    val_ppl_history = []
-    val_acc_history = []
-
     log_path = f"./logs/{mixture}/{jobid}"
     os.makedirs(log_path, exist_ok=True)
     train_log = os.path.join(log_path, "train_loss_distill_{distillation}_{pretrained}.jsonl")
@@ -214,16 +204,13 @@ def main(data_files, teacher, student, pretrained, distillation, seed):
                 ts = datetime.now().isoformat()
                 print(f"{ts}: [Step {step}] Loss: {loss.item():.4f}, CE: {ce_loss.item():.4f}, KL: {kl_loss.item():.4f}")
 
-            ce_loss_history.append(ce_loss.item())
-            kl_loss_history.append(kl_loss.item())
-            total_loss_history.append(loss.item())
             with open(train_log, "at" if step > 1 else "wt") as f:
                 ts = datetime.now().isoformat()
                 json.dump({
                     "step": step,
                     "ce_loss": ce_loss.item(),
                     "kl_loss": kl_loss.item(),
-                    "total_loss": total_loss_history,
+                    "total_loss": loss.item(),
                     "ts": ts,
                 }, f)
                 f.write("\n")
@@ -236,11 +223,6 @@ def main(data_files, teacher, student, pretrained, distillation, seed):
 
             if step % val_every == 0:
                 val_loss, val_loss_ce, val_loss_kl, val_acc, val_ppl = evaluate(distillation, student_model, val_loader, teacher_model, ce_loss_fn, kl_loss_fn, alpha, val_steps=val_steps)
-                val_loss_history.append(val_loss)
-                val_ce_loss_history.append(val_loss_ce)
-                val_kl_loss_history.append(val_loss_kl)
-                val_ppl_history.append(val_ppl)
-                val_acc_history.append(val_acc)
 
                 with open(val_log, "at" if step > 1 else "wt") as f:
                     ts = datetime.now().isoformat()
