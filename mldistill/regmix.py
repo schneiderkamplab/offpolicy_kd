@@ -36,8 +36,6 @@ __all__ = ["main"]
 @click.option('--run-id', default=".", help="Run ID for logging and checkpointing (default: .)")
 def main(mixture_file, mixture, data_dir, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, val_every, val_steps, save_every, save_path, save_template, run_id):
     times = {}
-    main_logger = Logger(None, sys.stdout)
-
     with timing(times, key="timing/mixture_file"):
         if mixture is None:
             mixture = str(Path(mixture_file).stem)
@@ -49,11 +47,32 @@ def main(mixture_file, mixture, data_dir, student, teacher, pretrained, distilla
         data_files, weights = zip(*((data_file, weight) for data_file, weight in zip(data_files, weights) if weight))
         train_data_files = [data_dir / f"train_{data_file}.parquet" for data_file in data_files]
         val_data_files = [data_dir / f"valid_{data_file}.parquet" for data_file in data_files]
+    distill(
+        times=times,
+        experiment=mixture,
+        train_data_files=train_data_files,
+        val_data_files=val_data_files,
+        weights=weights,
+        teacher=teacher,
+        student=student,
+        pretrained=pretrained,
+        distillation=distillation,
+        offload_teacher=offload_teacher,
+        seed=seed,
+        alpha=alpha,
+        log_every=log_every,
+        val_every=val_every,
+        val_steps=val_steps,
+        save_every=save_every,
+        save_path=Path(save_path),
+        save_template=save_template,
+        run_id=run_id,
+    )
 
+def distill(times, experiment, train_data_files, val_data_files, weights, teacher, student, pretrained, distillation, offload_teacher, seed, alpha, log_every, val_every, val_steps, save_every, save_path, save_template, run_id):
     with timing(times, key="timing/load_datasets"):
         train_datasets = [load_dataset("parquet", data_files=train_data_file, split="train") for train_data_file in train_data_files]
         val_datasets = [load_dataset("parquet", data_files=val_data_file, split="train") for val_data_file in val_data_files]
-
     with timing(times, key="timing/prepare_dataloaders"):
         accelerator = Accelerator()
         rank = accelerator.process_index
@@ -64,7 +83,6 @@ def main(mixture_file, mixture, data_dir, student, teacher, pretrained, distilla
         val_sampler = ProportionalSampler(val_datasets, weights, seed=seed)
         val_combined_dataset = ConcatDataset(val_datasets)
         val_loader = DataLoader(val_combined_dataset, sampler=val_sampler, batch_size=1, shuffle=False, collate_fn=collate_fn)
-
     if distillation:
         with timing(times, key="timing/load_teacher_model"):
             teacher_config = AutoConfig.from_pretrained(teacher)
@@ -88,7 +106,7 @@ def main(mixture_file, mixture, data_dir, student, teacher, pretrained, distilla
         if teacher_model and offload_teacher:
             teacher_model.to(inc_device(student_model.device, world_size))
         check_pointer = CheckPointer(student_model, save_path, save_template, save_every=save_every, rank=rank)
-        log_path = log_path / mixture / run_id
+        log_path = log_path / experiment / run_id
         train_logger = Logger(log_path, f"train.jsonl")
         if rank == 0:
             train_logger.append(sys.stdout, log_every)
@@ -114,6 +132,7 @@ def main(mixture_file, mixture, data_dir, student, teacher, pretrained, distilla
             val_logger=val_logger
         )
 
+    main_logger = Logger(None, sys.stdout)
     main_logger.log(step=0, **times)
     times = {}
     with timing(times, key="timing/train"):
