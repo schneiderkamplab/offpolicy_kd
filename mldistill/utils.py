@@ -13,10 +13,8 @@ __all__ = [
     'collate_fn',
     'calculate_perplexity',
     'calculate_accuracy',
-    'evaluate',
     'inc_device',
     'load_datasets',
-    'train',
 ]
 
 # setup utilities
@@ -38,9 +36,9 @@ def load_datasets(train_data_files, val_data_files):
 
 class Logger():
 
-    def __init__(self, log_path=".", *files):
-        self.log_path = Path(log_path)
-        log_path.mkdir(parents=True, exist_ok=True)
+    def __init__(self, log_path, *files):
+        self.log_path = Path("." if log_path is None else log_path)
+        self.log_path.mkdir(parents=True, exist_ok=True)
         self.files = []
         self.extend(files)
 
@@ -50,7 +48,7 @@ class Logger():
             self.append(*file)
 
     def append(self, file, freq=1):
-        if isinstance(file, os.PathLike):
+        if isinstance(file, (str, os.PathLike)):
             file = open(self.log_path / file, "at")
         self.files.append((file, freq))
 

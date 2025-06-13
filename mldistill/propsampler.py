@@ -17,9 +17,9 @@ class ProportionalSampler(Sampler):
             offset += length
         max_total = min(self.lengths[i] / self.weights[i] for i in range(len(self.datasets)))
         self.num_samples = min(num_samples or int(sum(self.lengths)), int(max_total))
+        self.rnd = random.Random(self.seed)
 
     def __iter__(self):
-        rnd = random.Random(self.seed)
         raw_counts = [self.weights[i] * self.num_samples for i in range(len(self.datasets))]
         counts = [min(int(c), self.lengths[i]) for i, c in enumerate(raw_counts)]
         sampled_indices = []
@@ -28,9 +28,9 @@ class ProportionalSampler(Sampler):
             offset = self.offsets[i]
             if count > length:
                 raise ValueError(f"Cannot sample {count} items from dataset {i} of length {length}")
-            indices = rnd.sample(range(length), count)
+            indices = self.rnd.sample(range(length), count)
             sampled_indices.extend(offset + i for i in indices)
-        rnd.shuffle(sampled_indices)
+        self.rnd.shuffle(sampled_indices)
         return iter(sampled_indices)
 
     def __len__(self):

@@ -1,6 +1,8 @@
 import gc
+import sys
 import torch
 from torch.nn import functional as F
+from tqdm import tqdm
 
 from .utils import calculate_accuracy, calculate_perplexity
 
@@ -8,7 +10,7 @@ __all__ = ["Trainer"]
 
 class Trainer:
 
-    def __init__(self, student_model, train_loader, val_loader, train_logger, val_logger, optimizer, ce_loss_fn, kl_loss_fn, teacher_model, alpha=0.5, patience=10, val_steps=10):
+    def __init__(self, student_model, train_loader, val_loader, train_logger, val_logger, optimizer, ce_loss_fn, kl_loss_fn, teacher_model, check_pointer, alpha, collect_every, val_every, patience, val_steps):
         self.student_model = student_model
         self.teacher_model = teacher_model
         self.train_loader = train_loader
@@ -19,10 +21,14 @@ class Trainer:
         self.ce_loss_fn = ce_loss_fn
         self.kl_loss_fn = kl_loss_fn
         self.alpha = alpha
+        self.collect_every = collect_every
+        self.val_every = val_every
+        self.val_steps = val_steps
+        self.check_pointer = check_pointer
+        self.patience = patience
         self.step = 0
         self.best_val_loss = float('inf')
         self.patience_counter = 0
-        self.patience = patience
 
     def evaluate(self, num_steps=None):
         if num_steps is None:
@@ -35,14 +41,13 @@ class Trainer:
             for i, batch in zip(range(self.val_steps), self.val_loader):
                 input_ids = batch["input_ids"]
                 attention_mask = batch["attention_mask"]
+                teacher_device = self.student_model.device
                 if self.teacher_model:
                     teacher_device = self.teacher_model.device
                     teacher_logits = self.teacher_model(input_ids=input_ids.to(teacher_device), attention_mask=attention_mask.to(teacher_device)).logits
                     teacher_logits = teacher_logits[:, :-1, :].contiguous()
                     teacher_flat = teacher_logits.view(-1, teacher_logits.size(-1))
-                student_logits = self.student_model(input_ids=input_ids, attention_mask=attention_mask).logits
-                if self.teacher_model:
-                    student_logits = student_logits.to(teacher_device)
+                student_logits = self.student_model(input_ids=input_ids, attention_mask=attention_mask).logits.to(teacher_device)
                 student_logits = student_logits[:, :-1, :].contiguous()
                 labels = input_ids[:, 1:].contiguous().to(teacher_device)
                 student_flat = student_logits.view(-1, student_logits.size(-1))
@@ -72,19 +77,22 @@ class Trainer:
 
         return avg_loss, avg_ce, avg_kl, avg_acc, perplexity
 
-    def train(self, num_epochs=10, alpha=0.5, val_every=100, patience=10, collect_every=None):
-        if collect_every is None:
-            collect_every = val_every
+    def train(self, num_epochs=1):
+        if self.collect_every is None:
+            collect_every = self.val_every
         self.student_model.train()
-        self.teacher_model.eval()
+        if self.teacher_model:
+            self.teacher_model.eval()
+            val_loss, val_loss_ce, val_loss_kl, val_acc, val_ppl = self.evaluate(num_steps=self.val_steps)
+            self.val_logger.log(step=self.step, loss=val_loss, ce_loss=val_loss_ce, kl_loss=val_loss_kl, val_ppl=val_ppl, val_acc=val_acc)
         for epoch in range(num_epochs):
-            print(f"Starting epoch: {epoch}")
-            for batch in self.train_loader:
+            for batch in tqdm(self.train_loader, desc=f"Epoch {epoch + 1}/{num_epochs}", unit="batch"):
                 self.student_model.zero_grad()
 
                 input_ids = batch["input_ids"]
                 attention_mask = batch["attention_mask"]
 
+                teacher_device = self.student_model.device
                 if self.teacher_model:
                     with torch.no_grad():
                         teacher_device = self.teacher_model.device
@@ -92,9 +100,7 @@ class Trainer:
                         teacher_logits = teacher_logits[:, :-1, :].contiguous()
                         teacher_flat = teacher_logits.view(-1, teacher_logits.size(-1))
 
-                student_logits = self.student_model(input_ids=input_ids, attention_mask=attention_mask).logits
-                if self.teacher_model:
-                    student_logits = student_logits.to(self.teacher_device)
+                student_logits = self.student_model(input_ids=input_ids, attention_mask=attention_mask).logits.to(teacher_device)
                 student_logits = student_logits[:, :-1, :].contiguous()
                 labels = input_ids[:, 1:].contiguous().to(teacher_device)
 
@@ -106,13 +112,13 @@ class Trainer:
                     kl_loss = self.kl_loss_fn(F.log_softmax(student_flat, dim=-1), F.softmax(teacher_flat[:, :student_flat.size(dim=1)], dim=-1))
                 else:
                     kl_loss = torch.tensor(0)
-                loss = alpha * kl_loss + ce_loss
+                loss = self.alpha * kl_loss + ce_loss
 
                 loss.backward()
                 self.optimizer.step()
 
-                step += 1
-                self.train_logger.log(step=step, ce_loss=ce_loss.item(), kl_loss=kl_loss.item(), total_loss=loss.item())
+                self.step += 1
+                self.train_logger.log(step=self.step, ce_loss=ce_loss.item(), kl_loss=kl_loss.item(), total_loss=loss.item())
 
                 if self.teacher_model:
                     del teacher_logits, teacher_flat
@@ -120,32 +126,33 @@ class Trainer:
                 del student_flat,labels, labels_flat
                 del ce_loss, kl_loss, loss
 
-                if step % val_every == 0:
+                if self.step % self.val_every == 0:
                     val_loss, val_loss_ce, val_loss_kl, val_acc, val_ppl = self.evaluate()
+                    self.val_logger.log(step=self.step, loss=val_loss, ce_loss=val_loss_ce, kl_loss=val_loss_kl, val_ppl=val_ppl, val_acc=val_acc)
 
-                    self.val_logger.log(step=step, loss=val_loss, ce_loss=val_loss_ce, kl_loss=val_loss_kl, val_ppl=val_ppl, val_acc=val_acc)
-
-                    if val_loss < best_val_loss:
-                        best_val_loss = val_loss
-                        patience_counter = 0
+                    if val_loss < self.best_val_loss:
+                        self.best_val_loss = val_loss
+                        self.patience_counter = 0
                         if self.check_pointer:
                             self.check_pointer.maybe_save(step=self.step)
                     else:
-                        patience_counter += 1
-                    if patience_counter >= patience:
-                        print("Early stopping triggered.")
+                        self.patience_counter += 1
+                    if self.patience_counter >= self.patience:
                         break
-                if step % collect_every == 0:
+                if self.step % collect_every == 0:
                     gc.collect()
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
                     if torch.backends.mps.is_available():
                         torch.mps.empty_cache()
-            if patience_counter >= patience:
-                reason = "Early stopping"
+            if self.patience_counter >= self.patience:
+                reason = f"Early stopping after {self.patience_counter} validations without improvement."
                 break
         else:
             reason = f"Trained for all {num_epochs} epochs."
-        print(f"Training complete: {reason}")
+        print(f"Training complete: {reason}", file=sys.stderr)
         if self.check_pointer:
-            self.check_pointer.maybe_save(step)
+            self.check_pointer.maybe_save(self.step)
+        if self.step % self.val_every != 0:
+            val_loss, val_loss_ce, val_loss_kl, val_acc, val_ppl = self.evaluate(num_steps=self.val_steps)
+            self.val_logger.log(step=self.step, loss=val_loss, ce_loss=val_loss_ce, kl_loss=val_loss_kl, val_ppl=val_ppl, val_acc=val_acc)

@@ -1,5 +1,6 @@
 from accelerate import Accelerator
 from mltiming import timing
+from pathlib import Path
 import sys
 import torch
 from torch.utils.data import ConcatDataset, DataLoader
@@ -11,7 +12,7 @@ from .utils import *
 
 __all__ = ["distill"]
 
-def distill(times, experiment, train_datasets, val_datasets, train_sampler, val_sampler, teacher, student, pretrained, distillation, offload_teacher, seed, alpha, log_every, val_every, val_steps, save_every, save_path, save_template, run_id):
+def distill(times, experiment, train_datasets, val_datasets, train_sampler, val_sampler, teacher, student, pretrained, distillation, offload_teacher, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience):
     with timing(times, key="timing/prepare_dataloaders"):
         accelerator = Accelerator()
         rank = accelerator.process_index
@@ -20,6 +21,7 @@ def distill(times, experiment, train_datasets, val_datasets, train_sampler, val_
         train_loader = DataLoader(train_combined_dataset, sampler=train_sampler, batch_size=1, shuffle=False, collate_fn=collate_fn, num_workers=0)
         val_combined_dataset = ConcatDataset(val_datasets)
         val_loader = DataLoader(val_combined_dataset, sampler=val_sampler, batch_size=1, shuffle=False, collate_fn=collate_fn, num_workers=0)
+    teacher_model = None
     if distillation:
         with timing(times, key="timing/load_teacher_model"):
             teacher_config = AutoConfig.from_pretrained(teacher)
@@ -43,7 +45,7 @@ def distill(times, experiment, train_datasets, val_datasets, train_sampler, val_
         if teacher_model:
             teacher_model.to(inc_device(student_model.device, world_size if offload_teacher else 0))
         check_pointer = CheckPointer(student_model, save_path, save_template, save_every=save_every, rank=rank)
-        log_path = log_path / experiment / run_id
+        log_path = Path(log_path) / experiment / run_id
         train_logger = Logger(log_path, f"train.jsonl")
         if rank == 0:
             train_logger.append(sys.stdout, log_every)
@@ -58,23 +60,21 @@ def distill(times, experiment, train_datasets, val_datasets, train_sampler, val_
             ce_loss_fn=ce_loss_fn,
             kl_loss_fn=kl_loss_fn,
             optimizer=optimizer,
-            accelerator=accelerator,
             alpha=alpha,
-            log_every=log_every,
+            collect_every=collect_every,
             val_every=val_every,
             val_steps=val_steps,
-            save_every=save_every,
             check_pointer=check_pointer,
             train_logger=train_logger,
-            val_logger=val_logger
+            val_logger=val_logger,
+            patience=patience,
         )
     main_logger = Logger(None, sys.stdout)
     main_logger.log(step=0, **times)
 
     times = {}
     with timing(times, key="timing/train"):
-        trainer.train(
-            num_epochs=280,
-            patience=10,
-        )
+        trainer.train(num_epochs=num_epochs)
+    times["best_val_loss"] = trainer.best_val_loss
+    times["total_steps"] = trainer.step
     main_logger.log(step=0, **times)

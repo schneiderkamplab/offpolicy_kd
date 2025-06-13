@@ -28,7 +28,8 @@ __all__ = ["standard"]
 @click.option('--save-template', default="student_step{step}.pt", help="Template for saving model checkpoints (default: student_step{step}.pt)")
 @click.option('--log-path', default="logs", help="Directory to save training logs (default: logs)")
 @click.option('--run-id', default=".", help="Run ID for logging and checkpointing (default: .)")
-def standard(train_data_files, val_data_files, experiment, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, val_every, val_steps, save_every, save_path, save_template, run_id):
+@click.option('--num-epochs', default=1, type=int, help="Number of training epochs (default: 1)")
+def standard(train_data_files, val_data_files, experiment, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, val_every, val_steps, save_every, save_path, save_template, run_id, num_epochs):
     times = {}
     with timing(times, key="timing/load_datasets"):
         train_datasets, val_datasets = load_datasets(train_data_files, val_data_files)
@@ -56,6 +57,7 @@ def standard(train_data_files, val_data_files, experiment, student, teacher, pre
         save_path=Path(save_path),
         save_template=save_template,
         run_id=run_id,
+        num_epochs=num_epochs,
     )
 
 if __name__ == "__main__":
