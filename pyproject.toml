@@ -1,0 +1,45 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mldistill"
+version = "0.0.1"
+authors = [
+  { name = "Andrea Blasi Nuñez" },
+  { name = "Lukas Galke" },
+  { name = "Jacob Nielsen" },
+  { name = "Peter Schneider-Kamp" },
+]
+
+description = "A model distillation framework."
+readme = "README.md"
+requires-python = ">=3.12"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+dependencies = [
+    'accelerate',
+    'click',
+    'datasets',
+    'mltiming',
+    'torch',
+    'transformers',
+]
+
+[project.urls]
+"Homepage" = "https://github.com/schneiderkamplab/offpolicy_kd"
+"Bug Tracker" = "https://github.com/schneiderkamplab/offpolicy_kd/issues"
+
+[project.scripts]
+mld-regmix = "mldistill.regmix:regmix"
+mld-standard = "mldistill.standard:standard"
+
+[tool.hatch.build]
+include = [
+    'mldistill',
+    'README.md',
+]
