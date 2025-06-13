@@ -6,7 +6,7 @@ from torch.utils.data import RandomSampler
 from .offpolicy import distill
 from .utils import load_datasets
 
-__all__ = ["standard"]
+__all__ = ["main"]
 
 @click.command()
 @click.argument('train_data_files', nargs=-1, type=click.Path(exists=True))
@@ -21,6 +21,7 @@ __all__ = ["standard"]
 @click.option('--seed', default=42, help="Random seed for data shuffling (default: 42)")
 @click.option('--alpha', default=1.0, type=float, help="Weight for KL divergence loss in distillation (default: 1.0)")
 @click.option('--log-every', default=10, type=int, help="Log training loss every N steps (default: 10)")
+@click.option('--collect-every', default=None, type=int, help="Garbage collect every N steps, if not provided it will collect after each validation step (default: None)")
 @click.option('--val-every', default=100, type=int, help="Validate every N steps (default: 100)")
 @click.option('--val-steps', default=10, type=int, help="Number of validation steps to run (default: 10)")
 @click.option('--save-every', default=100, type=int, help="Save model checkpoint every N steps (default: 100)")
@@ -29,7 +30,8 @@ __all__ = ["standard"]
 @click.option('--log-path', default="logs", help="Directory to save training logs (default: logs)")
 @click.option('--run-id', default=".", help="Run ID for logging and checkpointing (default: .)")
 @click.option('--num-epochs', default=1, type=int, help="Number of training epochs (default: 1)")
-def standard(train_data_files, val_data_files, experiment, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, val_every, val_steps, save_every, save_path, save_template, run_id, num_epochs):
+@click.option('--patience', default=10, type=int, help="Patience for early stopping (default: 10)")
+def main(train_data_files, val_data_files, experiment, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience):
     times = {}
     with timing(times, key="timing/load_datasets"):
         train_datasets, val_datasets = load_datasets(train_data_files, val_data_files)
@@ -48,17 +50,19 @@ def standard(train_data_files, val_data_files, experiment, student, teacher, pre
         pretrained=pretrained,
         distillation=distillation,
         offload_teacher=offload_teacher,
-        seed=seed,
         alpha=alpha,
         log_every=log_every,
+        collect_every=collect_every,
         val_every=val_every,
         val_steps=val_steps,
         save_every=save_every,
-        save_path=Path(save_path),
+        save_path=save_path,
         save_template=save_template,
+        log_path=log_path,
         run_id=run_id,
         num_epochs=num_epochs,
+        patience=patience,
     )
 
 if __name__ == "__main__":
-    standard()
+    main()

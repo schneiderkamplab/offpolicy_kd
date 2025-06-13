@@ -71,15 +71,15 @@ class Logger():
 class CheckPointer():
     def __init__(self, model, save_path, save_template, save_every=200, rank=0):
         self.model = model
-        self.save_path = save_path
+        self.save_path = Path(save_path)
         self.save_template = save_template
         self.save_every = save_every
         self.rank = rank
-        os.makedirs(save_path, exist_ok=True)
+        self.save_path.mkdir(parents=True, exist_ok=True)
 
     def maybe_save(self, step):
         if self.rank == 0 and step % self.save_every == 0:
-            checkpoint_file = os.path.join(self.save_path, self.save_template.format(step=step))
+            checkpoint_file = self.save_path / self.save_template.format(step=step)
             torch.save(self.model.state_dict(), checkpoint_file)
             print(f"Saved checkpoint: {checkpoint_file}")
 

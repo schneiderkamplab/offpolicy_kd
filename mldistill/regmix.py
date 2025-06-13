@@ -6,7 +6,7 @@ from .offpolicy import distill
 from .propsampler import *
 from .utils import load_datasets
 
-__all__ = ["regmix"]
+__all__ = ["main"]
 
 @click.command()
 @click.argument('mixture_file', type=click.Path(exists=True))
@@ -30,7 +30,7 @@ __all__ = ["regmix"]
 @click.option('--run-id', default=".", help="Run ID for logging and checkpointing (default: .)")
 @click.option('--num-epochs', default=1, type=int, help="Number of training epochs (default: 1)")
 @click.option('--patience', default=10, type=int, help="Patience for early stopping (default: 10)")
-def regmix(mixture_file, mixture, data_dir, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience):
+def main(mixture_file, mixture, data_dir, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience):
     times = {}
     with timing(times, key="timing/mixture_file"):
         if mixture is None:
@@ -66,7 +66,7 @@ def regmix(mixture_file, mixture, data_dir, student, teacher, pretrained, distil
         val_every=val_every,
         val_steps=val_steps,
         save_every=save_every,
-        save_path=Path(save_path),
+        save_path=save_path,
         save_template=save_template,
         log_path=log_path,
         run_id=run_id,
@@ -75,4 +75,4 @@ def regmix(mixture_file, mixture, data_dir, student, teacher, pretrained, distil
     )
 
 if __name__ == "__main__":
-    regmix()
+    main()
