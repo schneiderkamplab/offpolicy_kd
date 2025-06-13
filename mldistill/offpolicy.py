@@ -44,6 +44,7 @@ def distill(times, experiment, train_datasets, val_datasets, train_sampler, val_
         train_loader, val_loader, student_model, optimizer = accelerator.prepare(train_loader, val_loader, student_model, optimizer)
         if teacher_model:
             teacher_model.to(inc_device(student_model.device, world_size if offload_teacher else 0))
+        save_path = Path(save_path) / experiment / run_id
         check_pointer = CheckPointer(student_model, save_path, save_template, save_every=save_every, rank=rank)
         log_path = Path(log_path) / experiment / run_id
         train_logger = Logger(log_path, f"train.jsonl")
