@@ -83,8 +83,8 @@ class Trainer:
         self.student_model.train()
         if self.teacher_model:
             self.teacher_model.eval()
-            val_loss, val_loss_ce, val_loss_kl, val_acc, val_ppl = self.evaluate(num_steps=self.val_steps)
-            self.val_logger.log(step=self.step, loss=val_loss, ce_loss=val_loss_ce, kl_loss=val_loss_kl, val_ppl=val_ppl, val_acc=val_acc)
+        val_loss, val_loss_ce, val_loss_kl, val_acc, val_ppl = self.evaluate(num_steps=self.val_steps)
+        self.val_logger.log(step=self.step, loss=val_loss, ce_loss=val_loss_ce, kl_loss=val_loss_kl, val_ppl=val_ppl, val_acc=val_acc)
         for epoch in range(num_epochs):
             for batch in tqdm(self.train_loader, desc=f"Epoch {epoch + 1}/{num_epochs}", unit="batch"):
                 self.student_model.zero_grad()
