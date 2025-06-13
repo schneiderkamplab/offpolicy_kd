@@ -35,7 +35,8 @@ dependencies = [
 "Bug Tracker" = "https://github.com/schneiderkamplab/offpolicy_kd/issues"
 
 [project.scripts]
-mld-regmix = "mldistill.regmix:main"
+mld-regmix = "mldistill.regmix:regmix"
+mld-standard = "mldistill.standard:standard"
 
 [tool.hatch.build]
 include = [

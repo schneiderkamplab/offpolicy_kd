@@ -1,3 +1,4 @@
+from datasets import load_dataset
 from datetime import datetime
 from json import dumps
 import math
@@ -14,6 +15,7 @@ __all__ = [
     'calculate_accuracy',
     'evaluate',
     'inc_device',
+    'load_datasets',
     'train',
 ]
 
@@ -27,7 +29,10 @@ def inc_device(device, increment):
 
 # data utilities
 
-
+def load_datasets(train_data_files, val_data_files):
+    train_datasets = [load_dataset("parquet", data_files=train_data_file, split="train") for train_data_file in train_data_files]
+    val_datasets = [load_dataset("parquet", data_files=val_data_file, split="train") for val_data_file in val_data_files]
+    return train_datasets, val_datasets
 
 # logging utilities
 

@@ -1,16 +1,17 @@
 import click
 from mltiming import timing
 from pathlib import Path
+from torch.utils.data import RandomSampler
 
 from .offpolicy import distill
-from .propsampler import *
 from .utils import load_datasets
 
-__all__ = ["regmix"]
+__all__ = ["standard"]
 
 @click.command()
-@click.argument('mixture_file', type=click.Path(exists=True))
-@click.option('--mixture', default=None, help="Mixture name, if not provided it will be derived from the basename of the mixture file without extension (default: None)")
+@click.argument('train_data_files', nargs=-1, type=click.Path(exists=True))
+@click.option('--val_data_files', nargs=-1, type=click.Path(exists=True), default=None, help="Validation data files in Parquet format, if not provided it will use the same files as training data")
+@click.option('--experiment', default=None, help="Experiment name (default: None)")
 @click.option('--data-dir', default=None, help="Directory containing the tokenized datasets in Parquet format, if not provided it will be derived from the parent of the mixture file (default: None)")
 @click.option('--student', default="models/gemma-3-1b-pt", help="Student model identifier or path (default: models/gemma-3-1b-pt)")
 @click.option('--teacher', default="models/gemma-3-4b-pt", help="Teacher model identifier or path (default: models/gemma-3-4b-pt)")
@@ -27,27 +28,16 @@ __all__ = ["regmix"]
 @click.option('--save-template', default="student_step{step}.pt", help="Template for saving model checkpoints (default: student_step{step}.pt)")
 @click.option('--log-path', default="logs", help="Directory to save training logs (default: logs)")
 @click.option('--run-id', default=".", help="Run ID for logging and checkpointing (default: .)")
-def regmix(mixture_file, mixture, data_dir, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, val_every, val_steps, save_every, save_path, save_template, run_id):
+def standard(train_data_files, val_data_files, experiment, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, val_every, val_steps, save_every, save_path, save_template, run_id):
     times = {}
-    with timing(times, key="timing/mixture_file"):
-        if mixture is None:
-            mixture = str(Path(mixture_file).stem)
-        if data_dir:
-            data_dir = Path(mixture_file).parent.parent / "gemma3"
-        with open(mixture_file, "rt") as f:
-            data_files = [x.strip() for x in f.readline().split(",")]
-            weights = [float(x) for x in f.readline().split(",")]
-        data_files, weights = zip(*((data_file, weight) for data_file, weight in zip(data_files, weights) if weight))
-        train_data_files = [data_dir / f"train_{data_file}.parquet" for data_file in data_files]
-        val_data_files = [data_dir / f"valid_{data_file}.parquet" for data_file in data_files]
     with timing(times, key="timing/load_datasets"):
         train_datasets, val_datasets = load_datasets(train_data_files, val_data_files)
     with timing(times, key="timing/prepare_samplers"):
-        train_sampler = ProportionalSampler(train_datasets, weights, seed=seed)
-        val_sampler = ProportionalSampler(val_datasets, weights, seed=seed)
+        train_sampler = RandomSampler(train_datasets, seed=seed)
+        val_sampler = RandomSampler(val_datasets, seed=seed)
     distill(
         times=times,
-        experiment=mixture,
+        experiment=experiment,
         train_datasets=train_datasets,
         val_datasets=val_datasets,
         train_sampler=train_sampler,
@@ -69,4 +59,4 @@ def regmix(mixture_file, mixture, data_dir, student, teacher, pretrained, distil
     )
 
 if __name__ == "__main__":
-    regmix()
+    standard()
