@@ -1,18 +1,16 @@
 import click
 from mltiming import timing
-from pathlib import Path
-from torch.utils.data import RandomSampler
 
 from .offpolicy import distill
+from .sampler import RandomSampler
 from .utils import load_datasets
 
 __all__ = ["main"]
 
 @click.command()
 @click.argument('train_data_files', nargs=-1, type=click.Path(exists=True))
-@click.option('--val_data_files', nargs=-1, type=click.Path(exists=True), default=None, help="Validation data files in Parquet format, if not provided it will use the same files as training data")
+@click.option('--val-data-files', multiple=True, type=click.Path(exists=True), default=None, help="Validation data files in Parquet format, if not provided it will use the same files as training data")
 @click.option('--experiment', default=None, help="Experiment name (default: None)")
-@click.option('--data-dir', default=None, help="Directory containing the tokenized datasets in Parquet format, if not provided it will be derived from the parent of the mixture file (default: None)")
 @click.option('--student', default="models/gemma-3-1b-pt", help="Student model identifier or path (default: models/gemma-3-1b-pt)")
 @click.option('--teacher', default="models/gemma-3-4b-pt", help="Teacher model identifier or path (default: models/gemma-3-4b-pt)")
 @click.option('--pretrained', is_flag=True, help="Initialize student from pretrained model instead of fresh config (default: False)")
@@ -28,7 +26,7 @@ __all__ = ["main"]
 @click.option('--save-path', default="checkpoints", help="Directory to save model checkpoints (default: checkpoints)")
 @click.option('--save-template', default="student_step{step}.pt", help="Template for saving model checkpoints (default: student_step{step}.pt)")
 @click.option('--log-path', default="logs", help="Directory to save training logs (default: logs)")
-@click.option('--run-id', default=".", help="Run ID for logging and checkpointing (default: .)")
+@click.option('--run-id', default=None, help="Run ID for logging and checkpointing (default: None)")
 @click.option('--num-epochs', default=1, type=int, help="Number of training epochs (default: 1)")
 @click.option('--patience', default=10, type=int, help="Patience for early stopping (default: 10)")
 def main(train_data_files, val_data_files, experiment, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience):

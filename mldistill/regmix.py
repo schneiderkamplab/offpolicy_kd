@@ -3,7 +3,7 @@ from mltiming import timing
 from pathlib import Path
 
 from .offpolicy import distill
-from .propsampler import *
+from .sampler import ProportionalSampler
 from .utils import load_datasets
 
 __all__ = ["main"]
@@ -27,7 +27,7 @@ __all__ = ["main"]
 @click.option('--save-path', default="checkpoints", help="Directory to save model checkpoints (default: checkpoints)")
 @click.option('--save-template', default="student_step{step}.pt", help="Template for saving model checkpoints (default: student_step{step}.pt)")
 @click.option('--log-path', default="logs", help="Directory to save training logs (default: logs)")
-@click.option('--run-id', default=".", help="Run ID for logging and checkpointing (default: .)")
+@click.option('--run-id', default=None, help="Run ID for logging and checkpointing (default: None)")
 @click.option('--num-epochs', default=1, type=int, help="Number of training epochs (default: 1)")
 @click.option('--patience', default=10, type=int, help="Patience for early stopping (default: 10)")
 def main(mixture_file, mixture, data_dir, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience):
