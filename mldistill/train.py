@@ -152,7 +152,7 @@ class Trainer:
             reason = f"Trained for all {num_epochs} epochs."
         print(f"Training complete: {reason}", file=sys.stderr)
         if self.check_pointer:
-            self.check_pointer.maybe_save(self.step)
+            self.check_pointer.save(self.step)
         if self.step % self.val_every != 0:
             val_loss, val_loss_ce, val_loss_kl, val_acc, val_ppl = self.evaluate(num_steps=self.val_steps)
             self.val_logger.log(step=self.step, loss=val_loss, ce_loss=val_loss_ce, kl_loss=val_loss_kl, val_ppl=val_ppl, val_acc=val_acc)

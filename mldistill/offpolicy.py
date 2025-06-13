@@ -50,15 +50,17 @@ def distill(times, experiment, train_datasets, val_datasets, train_sampler, val_
         save_path = Path(save_path) / experiment / run_id
         check_pointer = CheckPointer(student_model, save_path, save_template, save_every=save_every, rank=rank)
         log_path = Path(log_path) / experiment / run_id
-        train_logger = Logger(log_path, f"train.jsonl")
+        train_logger = Logger(log_path)
         if rank == 0:
+            train_logger.append(f"train.jsonl")
             train_logger.append(sys.stdout, log_every)
-        val_logger = Logger(log_path, f"val.jsonl")
+        val_logger = Logger(log_path)
         if rank == 0:
+            train_logger.append(f"val.jsonl")
             val_logger.append(sys.stdout, val_every)
         trainer = Trainer(
             student_model=student_model,
-            teacher_model=teacher_model if distillation else None,
+            teacher_model=teacher_model,
             train_loader=train_loader,
             val_loader=val_loader,
             ce_loss_fn=ce_loss_fn,

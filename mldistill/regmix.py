@@ -16,7 +16,7 @@ __all__ = ["main"]
 @click.option('--teacher', default="models/gemma-3-4b-pt", help="Teacher model identifier or path (default: models/gemma-3-4b-pt)")
 @click.option('--pretrained', is_flag=True, help="Initialize student from pretrained model instead of fresh config (default: False)")
 @click.option('--distillation', is_flag=True, help="Do distillation, otherwise it will train without a teacher model (default: False)")
-@click.option('--offload-teacher', is_flag=True, help="Offload teacher model to separate CPU during training (default: False)")
+@click.option('--offload-teacher', is_flag=True, help="Offload teacher model to separate GPU during training (default: False)")
 @click.option('--seed', default=42, help="Random seed for data shuffling (default: 42)")
 @click.option('--alpha', default=1.0, type=float, help="Weight for KL divergence loss in distillation (default: 1.0)")
 @click.option('--log-every', default=10, type=int, help="Log training loss every N steps (default: 10)")

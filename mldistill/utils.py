@@ -78,7 +78,10 @@ class CheckPointer():
         self.save_path.mkdir(parents=True, exist_ok=True)
 
     def maybe_save(self, step):
-        if self.rank == 0 and step % self.save_every == 0:
+        if step % self.save_every == 0:
+            self.save(step)
+    def save(self, step):
+        if self.rank == 0:
             checkpoint_file = self.save_path / self.save_template.format(step=step)
             torch.save(self.model.state_dict(), checkpoint_file)
             print(f"Saved checkpoint: {checkpoint_file}")
