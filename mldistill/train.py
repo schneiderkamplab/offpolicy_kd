@@ -77,6 +77,7 @@ class Trainer:
             collect_every = val_every
         self.student_model.train()
         self.teacher_model.eval()
+        step=0
         for epoch in range(num_epochs):
             print(f"Starting epoch: {epoch}")
             for batch in self.train_loader:
