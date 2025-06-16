@@ -36,23 +36,32 @@ def load_datasets(train_data_files, val_data_files):
 
 class Logger():
 
-    def __init__(self, log_path, *files):
+    def __init__(self, log_path, disable, *files):
         self.log_path = Path("." if log_path is None else log_path)
         self.log_path.mkdir(parents=True, exist_ok=True)
+        self.disable = disable
         self.files = []
+        if self.disable:
+            return 
         self.extend(files)
 
     def extend(self, files):
+        if self.disable:
+            return
         for file in files:
             file = file if isinstance(file, tuple) else (file,)
             self.append(*file)
 
     def append(self, file, freq=1):
+        if self.disable:
+            return
         if isinstance(file, (str, os.PathLike)):
             file = open(self.log_path / file, "at")
         self.files.append((file, freq))
 
     def log(self, **kwargs):
+        if self.disable:
+            return
         step = kwargs.pop("step", None)
         data = {
             "step": step,
@@ -99,6 +108,6 @@ def calculate_perplexity(loss):
     return math.exp(loss)
 
 def calculate_accuracy(preds, labels):
-    correct = (preds == labels).sum().item()
+    correct = (preds == labels).sum()
     total = labels.numel()
     return correct / total

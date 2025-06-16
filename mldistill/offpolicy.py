@@ -50,14 +50,12 @@ def distill(times, experiment, train_datasets, val_datasets, train_sampler, val_
         save_path = Path(save_path) / experiment / run_id
         check_pointer = CheckPointer(student_model, save_path, save_template, save_every=save_every, rank=rank)
         log_path = Path(log_path) / experiment / run_id
-        train_logger = Logger(log_path)
-        if rank == 0:
-            train_logger.append(f"train.jsonl")
-            train_logger.append(sys.stdout, log_every)
-        val_logger = Logger(log_path)
-        if rank == 0:
-            train_logger.append(f"val.jsonl")
-            val_logger.append(sys.stdout, val_every)
+        train_logger = Logger(log_path, rank)
+        train_logger.append(f"train.jsonl")
+        train_logger.append(sys.stdout, log_every)
+        val_logger = Logger(log_path, rank)
+        train_logger.append(f"val.jsonl")
+        val_logger.append(sys.stdout, val_every)
         trainer = Trainer(
             student_model=student_model,
             teacher_model=teacher_model,
@@ -74,8 +72,9 @@ def distill(times, experiment, train_datasets, val_datasets, train_sampler, val_
             train_logger=train_logger,
             val_logger=val_logger,
             patience=patience,
+            accelerator=accelerator,
         )
-    main_logger = Logger(None, sys.stdout)
+    main_logger = Logger(None, rank, sys.stdout)
     main_logger.log(step=0, **times)
 
     times = {}

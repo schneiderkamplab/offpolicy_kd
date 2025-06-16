@@ -10,7 +10,7 @@ __all__ = ["Trainer"]
 
 class Trainer:
 
-    def __init__(self, student_model, train_loader, val_loader, train_logger, val_logger, optimizer, ce_loss_fn, kl_loss_fn, teacher_model, check_pointer, alpha, collect_every, val_every, patience, val_steps):
+    def __init__(self, student_model, train_loader, val_loader, train_logger, val_logger, optimizer, ce_loss_fn, kl_loss_fn, teacher_model, check_pointer, alpha, collect_every, val_every, patience, val_steps, accelerator):
         self.student_model = student_model
         self.teacher_model = teacher_model
         self.train_loader = train_loader
@@ -29,12 +29,17 @@ class Trainer:
         self.step = 0
         self.best_val_loss = float('inf')
         self.patience_counter = 0
+        self.accelerator = accelerator
 
     def evaluate(self, num_steps=None):
         if num_steps is None:
             num_steps = self.val_steps
         self.student_model.eval()
-        total_loss, total_ce, total_kl, total_acc = 0, 0, 0, 0
+        teacher_device = self.student_model.device
+        if self.teacher_model:
+            self.teacher_model.eval()
+            teacher_device = self.teacher_model.device
+        losses_acc = torch.zeros(4, device=teacher_device)
         count = 0
 
         with torch.no_grad():
@@ -43,7 +48,6 @@ class Trainer:
                 attention_mask = batch["attention_mask"]
                 teacher_device = self.student_model.device
                 if self.teacher_model:
-                    teacher_device = self.teacher_model.device
                     teacher_logits = self.teacher_model(input_ids=input_ids.to(teacher_device), attention_mask=attention_mask.to(teacher_device)).logits
                     teacher_logits = teacher_logits[:, :-1, :].contiguous()
                     teacher_flat = teacher_logits.view(-1, teacher_logits.size(-1))
@@ -60,31 +64,37 @@ class Trainer:
                     kl_loss = torch.tensor(0)
                 loss = self.alpha * kl_loss + ce_loss
 
-                total_loss += loss.item()
-                total_ce += ce_loss.item()
-                total_kl += kl_loss.item()
+                losses_acc[0] += loss
+                losses_acc[1] += ce_loss
+                losses_acc[2] += kl_loss
 
                 preds = torch.argmax(student_flat, dim=-1)
                 acc = calculate_accuracy(preds, labels_flat)
-                total_acc += acc
-                count += 1
+                losses_acc[3] += acc
+                count += input_ids.size(0)
 
-        avg_loss = total_loss / count
-        avg_ce = total_ce / count
-        avg_kl = total_kl / count
-        avg_acc = total_acc / count
-        perplexity = calculate_perplexity(avg_ce)
+        self.accelerator.reduce(losses_acc, op=torch.distributed.ReduceOp.AVG)
+        losses_acc /= count
+        perplexity = calculate_perplexity(losses_acc[1].item())
 
-        return avg_loss, avg_ce, avg_kl, avg_acc, perplexity
-
+        return {
+            "loss": losses_acc[0].item(),
+            "ce_loss": losses_acc[1].item(),
+            "kl_loss": losses_acc[2].item(),
+            "acc": losses_acc[3].item(),
+            "ppl": perplexity
+        }
+ 
     def train(self, num_epochs=1):
         if self.collect_every is None:
             collect_every = self.val_every
         self.student_model.train()
+        teacher_device = self.student_model.device
         if self.teacher_model:
             self.teacher_model.eval()
-        val_loss, val_loss_ce, val_loss_kl, val_acc, val_ppl = self.evaluate(num_steps=self.val_steps)
-        self.val_logger.log(step=self.step, loss=val_loss, ce_loss=val_loss_ce, kl_loss=val_loss_kl, val_ppl=val_ppl, val_acc=val_acc)
+            teacher_device = self.teacher_model.device
+        eval_result = self.evaluate(num_steps=self.val_steps)
+        self.val_logger.log(step=self.step, **eval_result)
         for epoch in range(num_epochs):
             for batch in tqdm(self.train_loader, desc=f"Epoch {epoch + 1}/{num_epochs}", unit="batch"):
                 self.student_model.zero_grad()
@@ -92,7 +102,6 @@ class Trainer:
                 input_ids = batch["input_ids"]
                 attention_mask = batch["attention_mask"]
 
-                teacher_device = self.student_model.device
                 if self.teacher_model:
                     with torch.no_grad():
                         teacher_device = self.teacher_model.device
@@ -116,22 +125,25 @@ class Trainer:
 
                 loss.backward()
                 self.optimizer.step()
-
                 self.step += 1
-                self.train_logger.log(step=self.step, ce_loss=ce_loss.item(), kl_loss=kl_loss.item(), total_loss=loss.item())
+
+                losses = torch.cat([loss.unsqueeze(0), ce_loss.unsqueeze(0), kl_loss.unsqueeze(0)], dim=0)
+                self.accelerator.reduce(losses, op=torch.distributed.ReduceOp.AVG)
+                losses /= input_ids.size(0)
+                self.train_logger.log(step=self.step, loss=losses[0].item(), ce_loss=losses[1].item(), kl_loss=losses[2].item())
 
                 if self.teacher_model:
                     del teacher_logits, teacher_flat
                 del input_ids, attention_mask, student_logits
                 del student_flat,labels, labels_flat
-                del ce_loss, kl_loss, loss
+                del ce_loss, kl_loss, loss, losses
 
                 if self.step % self.val_every == 0:
-                    val_loss, val_loss_ce, val_loss_kl, val_acc, val_ppl = self.evaluate()
-                    self.val_logger.log(step=self.step, loss=val_loss, ce_loss=val_loss_ce, kl_loss=val_loss_kl, val_ppl=val_ppl, val_acc=val_acc)
+                    eval_result = self.evaluate()
+                    self.val_logger.log(step=self.step, **eval_result)
 
-                    if val_loss < self.best_val_loss:
-                        self.best_val_loss = val_loss
+                    if eval_result["loss"] < self.best_val_loss:
+                        self.best_val_loss = eval_result["loss"]
                         self.patience_counter = 0
                         if self.check_pointer:
                             self.check_pointer.maybe_save(step=self.step)
@@ -154,5 +166,5 @@ class Trainer:
         if self.check_pointer:
             self.check_pointer.save(self.step)
         if self.step % self.val_every != 0:
-            val_loss, val_loss_ce, val_loss_kl, val_acc, val_ppl = self.evaluate(num_steps=self.val_steps)
-            self.val_logger.log(step=self.step, loss=val_loss, ce_loss=val_loss_ce, kl_loss=val_loss_kl, val_ppl=val_ppl, val_acc=val_acc)
+            eval_result = self.evaluate(num_steps=self.val_steps)
+            self.val_logger.log(step=self.step, **eval_result)
