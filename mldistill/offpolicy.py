@@ -48,7 +48,7 @@ def distill(times, experiment, train_datasets, val_datasets, train_sampler, val_
         if run_id is None:
             run_id = "."
         save_path = Path(save_path) / experiment / run_id
-        check_pointer = CheckPointer(student_model, save_path, save_template, save_every=save_every, rank=rank)
+        check_pointer = CheckPointer(student_model, save_path, save_template, save_every=save_every, disable=rank)
         log_path = Path(log_path) / experiment / run_id
         train_logger = Logger(log_path, rank)
         train_logger.append(f"train.jsonl")

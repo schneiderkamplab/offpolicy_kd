@@ -1,4 +1,3 @@
-* accumulate and log across multiple ranks
-* implement on-policy distillation
-* implement gradient accumulation
-* implement max_steps
+* implement on-policy distillation [ABLN]
+* implement gradient accumulation [PSK] || [ABLN]
+* implement max_tokens [ABLN] || [PSK]

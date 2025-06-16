@@ -78,19 +78,19 @@ class Logger():
 # training utilities
 
 class CheckPointer():
-    def __init__(self, model, save_path, save_template, save_every=200, rank=0):
+    def __init__(self, model, save_path, save_template, save_every=200, disable=False):
         self.model = model
         self.save_path = Path(save_path)
         self.save_template = save_template
         self.save_every = save_every
-        self.rank = rank
+        self.disable = disable
         self.save_path.mkdir(parents=True, exist_ok=True)
 
     def maybe_save(self, step):
         if step % self.save_every == 0:
             self.save(step)
     def save(self, step):
-        if self.rank == 0:
+        if not self.disable:
             checkpoint_file = self.save_path / self.save_template.format(step=step)
             torch.save(self.model.state_dict(), checkpoint_file)
             print(f"Saved checkpoint: {checkpoint_file}")
