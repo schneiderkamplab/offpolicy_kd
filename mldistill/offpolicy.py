@@ -11,7 +11,7 @@ from .utils import *
 
 __all__ = ["distill"]
 
-def distill(times, experiment, train_datasets, val_datasets, train_sampler, val_sampler, teacher, student, pretrained, distillation, offload_teacher, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience):
+def distill(times, experiment, train_datasets, val_datasets, train_sampler, val_sampler, teacher, student, pretrained, distillation, offload_teacher, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience, on_policy, lmbda, beta, seq_kd):
     with timing(times, key="timing/prepare_dataloaders"):
         accelerator = Accelerator()
         rank = accelerator.process_index
@@ -74,6 +74,11 @@ def distill(times, experiment, train_datasets, val_datasets, train_sampler, val_
             train_logger=train_logger,
             val_logger=val_logger,
             patience=patience,
+            on_policy=on_policy,
+            lmbda=lmbda,
+            beta=beta,
+            seq_kd=seq_kd,
+            accelerator=accelerator
         )
     main_logger = Logger(None, sys.stdout)
     main_logger.log(step=0, **times)

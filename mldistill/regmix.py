@@ -30,7 +30,18 @@ __all__ = ["main"]
 @click.option('--run-id', default=None, help="Run ID for logging and checkpointing (default: None)")
 @click.option('--num-epochs', default=1, type=int, help="Number of training epochs (default: 1)")
 @click.option('--patience', default=10, type=int, help="Patience for early stopping (default: 10)")
-def main(mixture_file, mixture, data_dir, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience):
+@click.option('--on_policy', is_flag=True, help="Do *on policy* distillation, use only with distillation flag (default: False)")
+@click.option('--lmbda', default=0.5, type=float, help="controls the student data fraction, i.e., the proportion of on-policy student-generated outputs. (default: 0.5)")
+@click.option('--seq_kd', is_flag=True, help="controls whether to perform Sequence-Level KD (default: False)")
+@click.option('--beta', default=None, type=float, help="To compute loss with JSD. Controls the interpolation in the generalized Jensen-Shannon Divergence. (default: None)")
+
+def main(mixture_file, mixture, data_dir, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience, on_policy, lmbda, seq_kd, beta):
+    if not on_policy and (seq_kd or lmbda != 0.5):
+        raise click.UsageError("--seq_kd and --lmbda can only be used when --on_policy is specified.")
+    if on_policy:
+        print(lmbda)
+
+
     times = {}
     with timing(times, key="timing/mixture_file"):
         if mixture is None:
@@ -72,6 +83,10 @@ def main(mixture_file, mixture, data_dir, student, teacher, pretrained, distilla
         run_id=run_id,
         num_epochs=num_epochs,
         patience=patience,
+        on_policy=on_policy,
+        lmbda=lmbda,
+        beta=beta,
+        seq_kd=seq_kd,
     )
 
 if __name__ == "__main__":
