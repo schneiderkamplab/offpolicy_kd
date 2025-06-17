@@ -26,6 +26,7 @@ class Trainer:
         self.val_steps = val_steps
         self.check_pointer = check_pointer
         self.patience = patience
+        self.micro_step = 0
         self.step = 0
         self.tokens = torch.tensor(0)
         self.best_val_loss = float('inf')
@@ -101,7 +102,8 @@ class Trainer:
         self.tokens = self.tokens.to(teacher_device)
         eval_result = self.evaluate(num_steps=self.val_steps)
         self.val_logger.log(step=self.step, **eval_result)
-        world_size = self.accelerator.num_processes
+        losses = torch.zeros(3, device=teacher_device, dtype=torch.float32)
+        tokens = torch.tensor(0, device=teacher_device, dtype=torch.int64)
         for epoch in range(num_epochs):
             for batch in tqdm(self.train_loader, desc=f"Epoch {epoch + 1}/{num_epochs}", unit="batch"):
                 self.student_model.zero_grad()
@@ -127,17 +129,53 @@ class Trainer:
                     kl_loss = self.kl_loss_fn(F.log_softmax(student_flat, dim=-1), F.softmax(teacher_flat[:, :student_flat.size(dim=1)], dim=-1))
                 else:
                     kl_loss = torch.tensor(0.0, device=teacher_device)
-                loss = self.alpha * kl_loss + ce_loss
+                loss = (self.alpha * kl_loss + ce_loss) / self.gradient_accumulation
 
                 loss.backward()
-                self.optimizer.step()
-                self.step += 1
-                self.tokens += input_ids.size(0) * input_ids.size(1)
+                self.micro_step += 1
+                losses[0] += loss
+                losses[1] += ce_loss
+                losses[2] += kl_loss
+                tokens += input_ids.size(0) * input_ids.size(1)
 
-                losses_tokens = torch.cat([loss.unsqueeze(0), ce_loss.unsqueeze(0), kl_loss.unsqueeze(0), self.tokens.unsqueeze(0)], dim=0)
-                self.accelerator.reduce(losses_tokens, reduction="sum")
-                losses_tokens[:3] /= input_ids.size(0) * world_size # per sample loss
-                self.train_logger.log(step=self.step, loss=losses_tokens[0].item(), ce_loss=losses_tokens[1].item(), kl_loss=losses_tokens[2].item(), tokens=losses_tokens[3].item())
+                if self.micro_step % self.gradient_accumulation == 0:
+                    self.step += 1
+                    self.optimizer.step()
+                    self.optimizer.zero_grad()
+                    self.accelerator.reduce(losses, reduction="mean")
+                    self.accelerator.reduce(tokens, reduction="sum")
+                    self.tokens += tokens
+                    self.train_logger.log(
+                        step=self.step,
+                        loss=losses[0].item(),
+                        ce_loss=losses[1].item(),
+                        kl_loss=losses[2].item(),
+                        tokens=self.tokens.item(),
+                    )
+                    losses = torch.zeros(3, device=teacher_device, dtype=torch.float32)
+                    tokens = torch.tensor(0, device=teacher_device, dtype=torch.int64)
+
+                    if self.max_tokens and self.tokens >= self.max_tokens:
+                        break
+                    if self.step % self.val_every == 0:
+                        eval_result = self.evaluate()
+                        self.val_logger.log(step=self.step, **eval_result)
+
+                        if eval_result["loss"] < self.best_val_loss:
+                            self.best_val_loss = eval_result["loss"]
+                            self.patience_counter = 0
+                            if self.check_pointer:
+                                self.check_pointer.maybe_save(step=self.step)
+                        else:
+                            self.patience_counter += 1
+                        if self.patience_counter >= self.patience:
+                            break
+                    if self.step % collect_every == 0:
+                        gc.collect()
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                        if torch.backends.mps.is_available():
+                            torch.mps.empty_cache()
 
                 if self.teacher_model:
                     del teacher_logits, teacher_flat
@@ -145,27 +183,6 @@ class Trainer:
                 del student_flat,labels, labels_flat
                 del ce_loss, kl_loss, loss, losses_tokens
 
-                if self.max_tokens and self.tokens >= self.max_tokens:
-                    break
-                if self.step % self.val_every == 0:
-                    eval_result = self.evaluate()
-                    self.val_logger.log(step=self.step, **eval_result)
-
-                    if eval_result["loss"] < self.best_val_loss:
-                        self.best_val_loss = eval_result["loss"]
-                        self.patience_counter = 0
-                        if self.check_pointer:
-                            self.check_pointer.maybe_save(step=self.step)
-                    else:
-                        self.patience_counter += 1
-                    if self.patience_counter >= self.patience:
-                        break
-                if self.step % collect_every == 0:
-                    gc.collect()
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-                    if torch.backends.mps.is_available():
-                        torch.mps.empty_cache()
             if self.max_tokens and self.tokens >= self.max_tokens:
                 reason = f"Reached {self.tokens} token exceeding the maximum of {self.max_tokens}."
                 break
