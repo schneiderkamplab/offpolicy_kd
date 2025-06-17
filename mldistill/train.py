@@ -92,13 +92,13 @@ class Trainer():
                     kl_loss = torch.tensor(0)
                 loss = self.alpha * kl_loss + ce_loss
 
-                losses_acc[0] += loss
-                losses_acc[1] += ce_loss
-                losses_acc[2] += kl_loss
+                losses_acc[0] += loss.detach()
+                losses_acc[1] += ce_loss.detach()
+                losses_acc[2] += kl_loss.detach()
 
                 preds = torch.argmax(student_flat, dim=-1)
                 acc = calculate_accuracy(preds, labels_flat)
-                losses_acc[3] += acc
+                losses_acc[3] += acc.detach()
                 count += input_ids.size(0)
 
         self.accelerator.reduce(losses_acc, reduction="mean")
@@ -120,6 +120,7 @@ class Trainer():
         if self.collect_every is None:
             collect_every = self.val_every
         self.student_model.train()
+        self.optimizer.zero_grad()
         teacher_device = self.student_model.device
         if self.teacher_model:
             self.teacher_model.eval()
@@ -147,25 +148,31 @@ class Trainer():
                         teacher_flat = teacher_logits.view(-1, teacher_logits.size(-1))
 
                 student_logits = self.student_model(input_ids=input_ids, attention_mask=attention_mask).logits.to(teacher_device)
+                del attention_mask
                 student_logits = student_logits[:, :-1, :].contiguous()
                 labels = input_ids[:, 1:].contiguous().to(teacher_device)
 
                 student_flat = student_logits.view(-1, student_logits.size(-1))
                 labels_flat = labels.view(-1)
 
+                tokens += input_ids.size(0) * input_ids.size(1)
                 ce_loss = self.ce_loss_fn(student_flat, labels_flat)
+                del input_ids, labels, labels_flat
+
                 if self.teacher_model:
                     kl_loss = self.kl_loss_fn(F.log_softmax(student_flat, dim=-1), F.softmax(teacher_flat[:, :student_flat.size(dim=1)], dim=-1))
+                    del teacher_logits, teacher_flat
                 else:
                     kl_loss = torch.tensor(0.0, device=teacher_device)
-                loss = (self.alpha * kl_loss + ce_loss) / self.gradient_accumulation
+                del student_logits, student_flat
+                loss = self.alpha * kl_loss + ce_loss
 
                 loss.backward()
                 self.micro_step += 1
-                losses[0] += loss
-                losses[1] += ce_loss
-                losses[2] += kl_loss
-                tokens += input_ids.size(0) * input_ids.size(1)
+                losses[0] += loss.detach()
+                losses[1] += ce_loss.detach()
+                losses[2] += kl_loss.detach()
+                del ce_loss, kl_loss, loss
 
                 if self.micro_step % self.gradient_accumulation == 0:
                     self.step += 1
@@ -207,12 +214,6 @@ class Trainer():
                         if torch.backends.mps.is_available():
                             torch.mps.empty_cache()
 
-                if self.teacher_model:
-                    del teacher_logits, teacher_flat
-                del input_ids, attention_mask, student_logits
-                del student_flat,labels, labels_flat
-                del ce_loss, kl_loss, loss
-
             if self.max_tokens and self.tokens >= self.max_tokens:
                 reason = f"Reached {self.tokens} token exceeding the maximum of {self.max_tokens}."
                 break
@@ -225,5 +226,6 @@ class Trainer():
         if self.check_pointer:
             self.check_pointer.save(self.step)
         if self.step % self.val_every != 0:
+            self.student_model.eval()
             eval_result = self.evaluate(num_steps=self.val_steps)
             self.val_logger.log(step=self.step, **eval_result)

@@ -54,13 +54,13 @@ def distill(
     if distillation:
         with timing(times, key="timing/load_teacher_model"):
             teacher_config = AutoConfig.from_pretrained(teacher)
-            teacher_config.max_position_embeddings = 4096
+            teacher_config.max_position_embeddings = max_seq_length
             teacher_model = AutoModelForCausalLM.from_pretrained(teacher, config=teacher_config)
 
     with timing(times, key="timing/load_student_model"):
         student_config = AutoConfig.from_pretrained(student)
         student_config.attn_implementation = "eager"
-        student_config.max_position_embeddings = 4096
+        student_config.max_position_embeddings = max_seq_length
         if pretrained:
             student_model = AutoModelForCausalLM.from_pretrained(student, config=student_config, attn_implementation='eager')
         else:
@@ -69,7 +69,7 @@ def distill(
     with timing(times, key="timing/prepare_for_training"):
         ce_loss_fn = torch.nn.CrossEntropyLoss()
         kl_loss_fn = torch.nn.KLDivLoss(reduction="batchmean")
-        optimizer = torch.optim.AdamW(student_model.parameters(), lr=1e-5)
+        optimizer = torch.optim.AdamW(student_model.parameters(), lr=1e-3)
         train_loader, val_loader, student_model, optimizer = accelerator.prepare(train_loader, val_loader, student_model, optimizer)
         if teacher_model:
             teacher_model.to(inc_device(student_model.device, world_size if offload_teacher else 0))
