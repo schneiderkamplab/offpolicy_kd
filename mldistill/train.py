@@ -27,7 +27,7 @@ class Trainer:
         self.check_pointer = check_pointer
         self.patience = patience
         self.step = 0
-        self.tokens = 0
+        self.tokens = torch.tensor(0)
         self.best_val_loss = float('inf')
         self.patience_counter = 0
         self.accelerator = accelerator
@@ -76,7 +76,7 @@ class Trainer:
                 losses_acc[3] += acc
                 count += input_ids.size(0)
 
-        self.accelerator.reduce(losses_acc, op=torch.distributed.ReduceOp.AVG)
+        self.accelerator.reduce(losses_acc, reduction="mean")
         losses_acc /= count
         perplexity = calculate_perplexity(losses_acc[1].item())
 
@@ -96,6 +96,9 @@ class Trainer:
         if self.teacher_model:
             self.teacher_model.eval()
             teacher_device = self.teacher_model.device
+        self.ce_loss_fn = self.ce_loss_fn.to(teacher_device)
+        self.kl_loss_fn = self.kl_loss_fn.to(teacher_device)
+        self.tokens = self.tokens.to(teacher_device)
         eval_result = self.evaluate(num_steps=self.val_steps)
         self.val_logger.log(step=self.step, **eval_result)
         world_size = self.accelerator.num_processes
@@ -108,7 +111,6 @@ class Trainer:
 
                 if self.teacher_model:
                     with torch.no_grad():
-                        teacher_device = self.teacher_model.device
                         teacher_logits = self.teacher_model(input_ids=input_ids.to(teacher_device), attention_mask=attention_mask.to(teacher_device)).logits
                         teacher_logits = teacher_logits[:, :-1, :].contiguous()
                         teacher_flat = teacher_logits.view(-1, teacher_logits.size(-1))
@@ -124,7 +126,7 @@ class Trainer:
                 if self.teacher_model:
                     kl_loss = self.kl_loss_fn(F.log_softmax(student_flat, dim=-1), F.softmax(teacher_flat[:, :student_flat.size(dim=1)], dim=-1))
                 else:
-                    kl_loss = torch.tensor(0)
+                    kl_loss = torch.tensor(0.0, device=teacher_device)
                 loss = self.alpha * kl_loss + ce_loss
 
                 loss.backward()
@@ -132,16 +134,16 @@ class Trainer:
                 self.step += 1
                 self.tokens += input_ids.size(0) * input_ids.size(1)
 
-                losses_tokens = torch.cat([loss.unsqueeze(0), ce_loss.unsqueeze(0), kl_loss.unsqueeze(0), self.tokens.unsqueeze(0)], dim=0)                
-                self.accelerator.reduce(losses_tokens, op=torch.distributed.ReduceOp.SUM)
+                losses_tokens = torch.cat([loss.unsqueeze(0), ce_loss.unsqueeze(0), kl_loss.unsqueeze(0), self.tokens.unsqueeze(0)], dim=0)
+                self.accelerator.reduce(losses_tokens, reduction="sum")
                 losses_tokens[:3] /= input_ids.size(0) * world_size # per sample loss
-                self.train_logger.log(step=self.step, loss=losses[0].item(), ce_loss=losses[1].item(), kl_loss=losses[2].item(), tokens=losses_tokens[3].item())
+                self.train_logger.log(step=self.step, loss=losses_tokens[0].item(), ce_loss=losses_tokens[1].item(), kl_loss=losses_tokens[2].item(), tokens=losses_tokens[3].item())
 
                 if self.teacher_model:
                     del teacher_logits, teacher_flat
                 del input_ids, attention_mask, student_logits
                 del student_flat,labels, labels_flat
-                del ce_loss, kl_loss, loss, losses
+                del ce_loss, kl_loss, loss, losses_tokens
 
                 if self.max_tokens and self.tokens >= self.max_tokens:
                     break
