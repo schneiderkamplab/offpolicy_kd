@@ -104,8 +104,10 @@ class Trainer:
         self.val_logger.log(step=self.step, **eval_result)
         losses = torch.zeros(3, device=teacher_device, dtype=torch.float32)
         tokens = torch.tensor(0, device=teacher_device, dtype=torch.int64)
+        progress_bar = tqdm(self.train_loader, unit="batches", total=num_epochs * len(self.train_loader) // self.gradient_accumulation)
         for epoch in range(num_epochs):
-            for batch in tqdm(self.train_loader, desc=f"Epoch {epoch + 1}/{num_epochs}", unit="batch"):
+            progress_bar.set_description(f"Epoch {epoch + 1}/{num_epochs}")
+            for batch in self.train_loader:
                 self.student_model.zero_grad()
 
                 input_ids = batch["input_ids"]
@@ -140,6 +142,7 @@ class Trainer:
 
                 if self.micro_step % self.gradient_accumulation == 0:
                     self.step += 1
+                    progress_bar.update(1)
                     self.optimizer.step()
                     self.optimizer.zero_grad()
                     self.accelerator.reduce(losses, reduction="mean")
@@ -181,7 +184,7 @@ class Trainer:
                     del teacher_logits, teacher_flat
                 del input_ids, attention_mask, student_logits
                 del student_flat,labels, labels_flat
-                del ce_loss, kl_loss, loss, losses_tokens
+                del ce_loss, kl_loss, loss
 
             if self.max_tokens and self.tokens >= self.max_tokens:
                 reason = f"Reached {self.tokens} token exceeding the maximum of {self.max_tokens}."
