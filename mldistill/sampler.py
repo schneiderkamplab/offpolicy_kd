@@ -1,11 +1,16 @@
-import random
 import torch
 from torch.utils.data import Sampler
+from typing import List
 
 __all__ = ["ProportionalSampler", "RandomSampler"]
 
 class RandomSampler(Sampler):
-    def __init__(self, datasets, seed=42, num_samples=None):
+    def __init__(
+        self,
+        datasets: List[torch.utils.data.Dataset],
+        seed: int = 42,
+        num_samples: int = None,
+    ):
         self.total_length = sum(len(ds) for ds in datasets)
         self.num_samples = num_samples or self.total_length
         self.generator = torch.Generator()
@@ -22,7 +27,13 @@ import torch
 from torch.utils.data import Sampler
 
 class ProportionalSampler(Sampler):
-    def __init__(self, datasets, weights, seed=42, num_samples=None):
+    def __init__(
+        self,
+        datasets: List[torch.utils.data.Dataset],
+        weights: List[float],
+        seed: int = 42,
+        num_samples: int = None,
+    ):
         assert len(datasets) == len(weights), "Each dataset must have a corresponding weight"
         self.datasets = datasets
         self.weights = torch.tensor(weights, dtype=torch.float)

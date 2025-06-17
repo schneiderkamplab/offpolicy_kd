@@ -1,16 +1,37 @@
+from accelerate import Accelerator
 import gc
 import sys
 import torch
 from torch.nn import functional as F
 from tqdm import tqdm
 
-from .utils import calculate_accuracy, calculate_perplexity
+from .utils import *
 
 __all__ = ["Trainer"]
 
-class Trainer:
+class Trainer():
 
-    def __init__(self, student_model, train_loader, val_loader, train_logger, val_logger, optimizer, ce_loss_fn, kl_loss_fn, teacher_model, check_pointer, alpha, collect_every, val_every, patience, val_steps, accelerator, max_tokens, gradient_accumulation=None):
+    def __init__(
+        self,
+        student_model: torch.nn.Module,
+        teacher_model: torch.nn.Module | None,
+        train_loader: torch.utils.data.DataLoader,
+        val_loader: torch.utils.data.DataLoader,
+        train_logger: Logger,
+        val_logger: Logger,
+        optimizer: torch.optim.Optimizer,
+        ce_loss_fn: torch.nn.Module,
+        kl_loss_fn: torch.nn.Module,
+        alpha: float,
+        collect_every: int | None,
+        val_every: int,
+        val_steps: int,
+        check_pointer: CheckPointer | None,
+        patience: int,
+        accelerator: Accelerator,
+        max_tokens: int | None,
+        gradient_accumulation: int,
+    ):
         self.student_model = student_model
         self.teacher_model = teacher_model
         self.train_loader = train_loader
@@ -35,7 +56,10 @@ class Trainer:
         self.max_tokens = max_tokens
         self.gradient_accumulation = gradient_accumulation
 
-    def evaluate(self, num_steps=None):
+    def evaluate(
+        self,
+        num_steps: int = None,
+    ) -> dict[str, float]:
         if num_steps is None:
             num_steps = self.val_steps
         self.student_model.eval()
@@ -79,17 +103,20 @@ class Trainer:
 
         self.accelerator.reduce(losses_acc, reduction="mean")
         losses_acc /= count
-        perplexity = calculate_perplexity(losses_acc[1].item())
+        perplexity = calculate_perplexity(losses_acc[1])
 
         return {
             "loss": losses_acc[0].item(),
             "ce_loss": losses_acc[1].item(),
             "kl_loss": losses_acc[2].item(),
             "acc": losses_acc[3].item(),
-            "ppl": perplexity
+            "ppl": perplexity.item(),
         }
  
-    def train(self, num_epochs=1):
+    def train(
+        self,
+        num_epochs: int = 1,
+    ) -> None:
         if self.collect_every is None:
             collect_every = self.val_every
         self.student_model.train()

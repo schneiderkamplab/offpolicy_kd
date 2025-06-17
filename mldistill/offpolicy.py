@@ -6,13 +6,41 @@ import sys
 import torch
 from torch.utils.data import ConcatDataset, DataLoader
 from transformers import AutoModelForCausalLM, AutoConfig
+from typing import Any, Dict, List
 
 from .train import Trainer
 from .utils import *
 
 __all__ = ["distill"]
 
-def distill(times, experiment, train_datasets, val_datasets, train_sampler, val_sampler, teacher, student, pretrained, distillation, offload_teacher, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience, max_tokens, max_seq_length, gradient_accumulation):
+def distill(
+    times: Dict[str, Any],
+    experiment: str,
+    train_datasets: List[torch.utils.data.Dataset],
+    val_datasets: List[torch.utils.data.Dataset],
+    train_sampler: torch.utils.data.Sampler,
+    val_sampler: torch.utils.data.Sampler,
+    teacher: str,
+    student: str,
+    pretrained: bool,
+    distillation: bool,
+    offload_teacher: bool,
+    alpha: float,
+    log_every: int,
+    collect_every: int,
+    val_every: int,
+    val_steps: int,
+    save_every: int,
+    save_path: str,
+    save_template: str,
+    log_path: str,
+    run_id: str,
+    num_epochs: int,
+    patience: int,
+    max_tokens: int,
+    max_seq_length: int,
+    gradient_accumulation: int,
+) -> None:
     with timing(times, key="timing/prepare_dataloaders"):
         accelerator = Accelerator()
         rank = accelerator.process_index
