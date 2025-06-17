@@ -1,4 +1,5 @@
 from accelerate import Accelerator
+from functools import partial
 from mltiming import timing
 from pathlib import Path
 import sys
@@ -11,11 +12,12 @@ from .utils import *
 
 __all__ = ["distill"]
 
-def distill(times, experiment, train_datasets, val_datasets, train_sampler, val_sampler, teacher, student, pretrained, distillation, offload_teacher, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience):
+def distill(times, experiment, train_datasets, val_datasets, train_sampler, val_sampler, teacher, student, pretrained, distillation, offload_teacher, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience, max_tokens, max_seq_length, gradient_accumulation):
     with timing(times, key="timing/prepare_dataloaders"):
         accelerator = Accelerator()
         rank = accelerator.process_index
         world_size = accelerator.num_processes
+        collate_fn = partial(collate_fn, max_seq_length=max_seq_length)
         train_combined_dataset = ConcatDataset(train_datasets)
         train_loader = DataLoader(train_combined_dataset, sampler=train_sampler, batch_size=1, shuffle=False, collate_fn=collate_fn, num_workers=0)
         val_combined_dataset = ConcatDataset(val_datasets)
@@ -73,6 +75,8 @@ def distill(times, experiment, train_datasets, val_datasets, train_sampler, val_
             val_logger=val_logger,
             patience=patience,
             accelerator=accelerator,
+            max_tokens=max_tokens,
+            gradient_accumulation=gradient_accumulation,
         )
     main_logger = Logger(None, rank, sys.stdout)
     main_logger.log(step=0, **times)

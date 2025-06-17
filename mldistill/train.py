@@ -10,7 +10,7 @@ __all__ = ["Trainer"]
 
 class Trainer:
 
-    def __init__(self, student_model, train_loader, val_loader, train_logger, val_logger, optimizer, ce_loss_fn, kl_loss_fn, teacher_model, check_pointer, alpha, collect_every, val_every, patience, val_steps, accelerator):
+    def __init__(self, student_model, train_loader, val_loader, train_logger, val_logger, optimizer, ce_loss_fn, kl_loss_fn, teacher_model, check_pointer, alpha, collect_every, val_every, patience, val_steps, accelerator, max_tokens, gradient_accumulation=None):
         self.student_model = student_model
         self.teacher_model = teacher_model
         self.train_loader = train_loader
@@ -27,9 +27,12 @@ class Trainer:
         self.check_pointer = check_pointer
         self.patience = patience
         self.step = 0
+        self.tokens = 0
         self.best_val_loss = float('inf')
         self.patience_counter = 0
         self.accelerator = accelerator
+        self.max_tokens = max_tokens
+        self.gradient_accumulation = gradient_accumulation
 
     def evaluate(self, num_steps=None):
         if num_steps is None:
@@ -95,6 +98,7 @@ class Trainer:
             teacher_device = self.teacher_model.device
         eval_result = self.evaluate(num_steps=self.val_steps)
         self.val_logger.log(step=self.step, **eval_result)
+        world_size = self.accelerator.num_processes
         for epoch in range(num_epochs):
             for batch in tqdm(self.train_loader, desc=f"Epoch {epoch + 1}/{num_epochs}", unit="batch"):
                 self.student_model.zero_grad()
@@ -126,11 +130,12 @@ class Trainer:
                 loss.backward()
                 self.optimizer.step()
                 self.step += 1
+                self.tokens += input_ids.size(0) * input_ids.size(1)
 
-                losses = torch.cat([loss.unsqueeze(0), ce_loss.unsqueeze(0), kl_loss.unsqueeze(0)], dim=0)
-                self.accelerator.reduce(losses, op=torch.distributed.ReduceOp.AVG)
-                losses /= input_ids.size(0)
-                self.train_logger.log(step=self.step, loss=losses[0].item(), ce_loss=losses[1].item(), kl_loss=losses[2].item())
+                losses_tokens = torch.cat([loss.unsqueeze(0), ce_loss.unsqueeze(0), kl_loss.unsqueeze(0), self.tokens.unsqueeze(0)], dim=0)                
+                self.accelerator.reduce(losses_tokens, op=torch.distributed.ReduceOp.SUM)
+                losses_tokens[:3] /= input_ids.size(0) * world_size # per sample loss
+                self.train_logger.log(step=self.step, loss=losses[0].item(), ce_loss=losses[1].item(), kl_loss=losses[2].item(), tokens=losses_tokens[3].item())
 
                 if self.teacher_model:
                     del teacher_logits, teacher_flat
@@ -138,6 +143,8 @@ class Trainer:
                 del student_flat,labels, labels_flat
                 del ce_loss, kl_loss, loss, losses
 
+                if self.max_tokens and self.tokens >= self.max_tokens:
+                    break
                 if self.step % self.val_every == 0:
                     eval_result = self.evaluate()
                     self.val_logger.log(step=self.step, **eval_result)
@@ -157,6 +164,9 @@ class Trainer:
                         torch.cuda.empty_cache()
                     if torch.backends.mps.is_available():
                         torch.mps.empty_cache()
+            if self.max_tokens and self.tokens >= self.max_tokens:
+                reason = f"Reached {self.tokens} token exceeding the maximum of {self.max_tokens}."
+                break
             if self.patience_counter >= self.patience:
                 reason = f"Early stopping after {self.patience_counter} validations without improvement."
                 break

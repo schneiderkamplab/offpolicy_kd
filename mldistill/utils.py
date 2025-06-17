@@ -95,8 +95,8 @@ class CheckPointer():
             torch.save(self.model.state_dict(), checkpoint_file)
             print(f"Saved checkpoint: {checkpoint_file}")
 
-def collate_fn(batch, max_length=4096):
-    input_ids = [torch.tensor(item['input_ids'][:max_length]) for item in batch]
+def collate_fn(batch, max_seq_length=4096):
+    input_ids = [torch.tensor(item['input_ids'][:max_seq_length]) for item in batch]
     input_ids_padded = pad_sequence(input_ids, batch_first=True, padding_value=0)
     attention_mask = (input_ids_padded != 0).long()
     return {

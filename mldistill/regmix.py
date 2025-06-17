@@ -30,7 +30,10 @@ __all__ = ["main"]
 @click.option('--run-id', default=None, help="Run ID for logging and checkpointing (default: None)")
 @click.option('--num-epochs', default=1, type=int, help="Number of training epochs (default: 1)")
 @click.option('--patience', default=10, type=int, help="Patience for early stopping (default: 10)")
-def main(mixture_file, mixture, data_dir, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience):
+@click.option('--max-tokens', default=None, type=int, help="Maximum number of training tokens (default: None, meaning no limit)")
+@click.option('--max-seq-length', default=4096, type=int, help="Maximum sequence length for training (default: 4096)")
+@click.option('--gradient-accumulation', default=64, type=int, help="Gradient accumulation steps (default: 64)")
+def main(mixture_file, mixture, data_dir, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience, max_tokens, max_seq_length, gradient_accumulation):
     times = {}
     with timing(times, key="timing/mixture_file"):
         if mixture is None:
@@ -72,6 +75,9 @@ def main(mixture_file, mixture, data_dir, student, teacher, pretrained, distilla
         run_id=run_id,
         num_epochs=num_epochs,
         patience=patience,
+        max_tokens=max_tokens,
+        max_seq_length=max_seq_length,
+        gradient_accumulation=gradient_accumulation,
     )
 
 if __name__ == "__main__":
