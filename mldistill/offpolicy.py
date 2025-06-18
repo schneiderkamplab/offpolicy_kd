@@ -40,6 +40,7 @@ def distill(
     max_tokens: int,
     max_seq_length: int,
     gradient_accumulation: int,
+    batch_size: int,
 ) -> None:
     with timing(times, key="timing/prepare_dataloaders"):
         accelerator = Accelerator()
@@ -47,9 +48,9 @@ def distill(
         world_size = accelerator.num_processes
         _collate_fn = partial(collate_fn, max_seq_length=max_seq_length)
         train_combined_dataset = ConcatDataset(train_datasets)
-        train_loader = DataLoader(train_combined_dataset, sampler=train_sampler, batch_size=1, shuffle=False, collate_fn=_collate_fn, num_workers=0)
+        train_loader = DataLoader(train_combined_dataset, sampler=train_sampler, batch_size=batch_size, shuffle=False, collate_fn=_collate_fn, num_workers=0)
         val_combined_dataset = ConcatDataset(val_datasets)
-        val_loader = DataLoader(val_combined_dataset, sampler=val_sampler, batch_size=1, shuffle=False, collate_fn=collate_fn, num_workers=0)
+        val_loader = DataLoader(val_combined_dataset, sampler=val_sampler, batch_size=batch_size, shuffle=False, collate_fn=collate_fn, num_workers=0)
     teacher_model = None
     if distillation:
         with timing(times, key="timing/load_teacher_model"):
