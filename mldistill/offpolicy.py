@@ -37,7 +37,8 @@ def distill(
     run_id: str,
     num_epochs: int,
     patience: int,
-    max_tokens: int,
+    max_tokens: int | None,
+    max_steps: int | None,
     max_seq_length: int,
     gradient_accumulation: int,
     batch_size: int,
@@ -105,6 +106,7 @@ def distill(
             patience=patience,
             accelerator=accelerator,
             max_tokens=max_tokens,
+            max_steps=max_steps,
             gradient_accumulation=gradient_accumulation,
         )
     main_logger = Logger(None, rank, sys.stdout)

@@ -30,6 +30,7 @@ class Trainer():
         patience: int,
         accelerator: Accelerator,
         max_tokens: int | None,
+        max_steps: int | None,
         gradient_accumulation: int,
     ):
         self.student_model = student_model
@@ -54,6 +55,7 @@ class Trainer():
         self.patience_counter = 0
         self.accelerator = accelerator
         self.max_tokens = max_tokens
+        self.max_steps = max_steps
         self.gradient_accumulation = gradient_accumulation
 
     def evaluate(
@@ -193,6 +195,8 @@ class Trainer():
 
                     if self.max_tokens and self.tokens >= self.max_tokens:
                         break
+                    if self.max_steps and self.step >= self.max_steps:
+                        break
                     if self.step % self.val_every == 0:
                         eval_result = self.evaluate()
                         self.val_logger.log(step=self.step, **eval_result)
@@ -214,7 +218,10 @@ class Trainer():
                             torch.mps.empty_cache()
 
             if self.max_tokens and self.tokens >= self.max_tokens:
-                reason = f"Reached {self.tokens} token exceeding the maximum of {self.max_tokens}."
+                reason = f"Reached {self.tokens} tokens with a maximum of {self.max_tokens}."
+                break
+            if self.max_steps and self.step >= self.max_steps:
+                reason = f"Reached {self.step} steps with a maximum of {self.max_steps}."
                 break
             if self.patience_counter >= self.patience:
                 reason = f"Early stopping after {self.patience_counter} validations without improvement."

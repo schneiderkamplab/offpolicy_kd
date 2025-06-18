@@ -30,10 +30,11 @@ __all__ = ["main"]
 @click.option('--num-epochs', default=1, type=int, help="Number of training epochs (default: 1)")
 @click.option('--patience', default=10, type=int, help="Patience for early stopping (default: 10)")
 @click.option('--max-tokens', default=None, type=int, help="Maximum number of training tokens (default: None, meaning no limit)")
+@click.option('--max-steps', default=None, type=int, help="Maximum number of training steps (default: None, meaning no limit)")
 @click.option('--max-seq-length', default=4096, type=int, help="Maximum sequence length for training (default: 4096)")
 @click.option('--gradient-accumulation', default=2, type=int, help="Gradient accumulation steps (default: 2)")
 @click.option('--batch-size', default=1, type=int, help="Batch size (default: 1)")
-def main(train_data_files, val_data_files, experiment, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience, max_tokens, max_seq_length, gradient_accumulation, batch_size):
+def main(train_data_files, val_data_files, experiment, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience, max_tokens, max_steps, max_seq_length, gradient_accumulation, batch_size):
     times = {}
     with timing(times, key="timing/load_datasets"):
         train_datasets, val_datasets = load_datasets(train_data_files, val_data_files)
@@ -65,6 +66,7 @@ def main(train_data_files, val_data_files, experiment, student, teacher, pretrai
         num_epochs=num_epochs,
         patience=patience,
         max_tokens=max_tokens,
+        max_steps=max_steps,
         max_seq_length=max_seq_length,
         gradient_accumulation=gradient_accumulation,
         batch_size=batch_size,
