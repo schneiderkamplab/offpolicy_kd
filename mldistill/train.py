@@ -136,7 +136,6 @@ class Trainer():
         for epoch in range(num_epochs):
             progress_bar.set_description(f"Epoch {epoch + 1}/{num_epochs}")
             for batch in self.train_loader:
-                self.student_model.zero_grad()
 
                 input_ids = batch["input_ids"]
                 attention_mask = batch["attention_mask"]
