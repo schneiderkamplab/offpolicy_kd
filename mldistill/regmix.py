@@ -48,7 +48,7 @@ def main(mixture_file, mixture, data_dir, student, teacher, pretrained, distilla
             weights = [float(x) for x in f.readline().split(",")]
         data_files, weights = zip(*((data_file, weight) for data_file, weight in zip(data_files, weights) if weight))
         train_data_files = [str(data_dir / f"train_{data_file}.parquet") for data_file in data_files]
-        val_data_files = [str(data_dir / f"val_{data_file}.parquet") for data_file in data_files]
+        val_data_files = [str(data_dir / f"valid_{data_file}.parquet") for data_file in data_files]
     with timing(times, key="timing/load_datasets"):
         train_datasets, val_datasets = load_datasets(train_data_files, val_data_files)
     with timing(times, key="timing/prepare_samplers"):
