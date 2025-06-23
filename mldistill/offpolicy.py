@@ -86,7 +86,7 @@ def distill(
         train_logger.append(f"train.jsonl")
         train_logger.append(sys.stdout, log_every)
         val_logger = Logger(log_path, rank)
-        train_logger.append(f"val.jsonl")
+        val_logger.append(f"val.jsonl")
         val_logger.append(sys.stdout, val_every)
         trainer = Trainer(
             student_model=student_model,
