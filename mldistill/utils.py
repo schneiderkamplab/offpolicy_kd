@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import torch
 from torch.nn.utils.rnn import pad_sequence
-from typing import IO, List, Tuple
+from typing import IO, List, Tuple, Union
 
 __all__ = [
     'CheckPointer',
@@ -30,13 +30,51 @@ def inc_device(
 
 # data utilities
 
+# def load_datasets(
+#     train_data_files: List[torch.utils.data.Dataset],
+#     val_data_files: List[torch.utils.data.Dataset],
+# ):
+#     train_datasets = [load_dataset("parquet", data_files=train_data_file, split="train") for train_data_file in train_data_files]
+#     val_datasets = [load_dataset("parquet", data_files=val_data_file, split="train") for val_data_file in val_data_files]
+#     return train_datasets, val_datasets
+
 def load_datasets(
-    train_data_files: List[torch.utils.data.Dataset],
-    val_data_files: List[torch.utils.data.Dataset],
+    train_data_paths: Union[str, List[str]],
+    val_data_paths: Union[str, List[str]],
 ):
-    train_datasets = [load_dataset("parquet", data_files=train_data_file, split="train") for train_data_file in train_data_files]
-    val_datasets = [load_dataset("parquet", data_files=val_data_file, split="train") for val_data_file in val_data_files]
-    return train_datasets, val_datasets
+    train_data_files = find_parquet_files(train_data_paths)
+    val_data_files = find_parquet_files(val_data_paths)
+
+    if not train_data_files:
+        raise ValueError("No valid parquet files found for training data.")
+    if not val_data_files:
+        raise ValueError("No valid parquet files found for validation data.")
+
+    train_dataset = load_dataset("parquet", data_files=train_data_files, split="train")
+    val_dataset = load_dataset("parquet", data_files=val_data_files, split="train")
+
+    return train_dataset, val_dataset
+
+
+from typing import Union, List
+
+def find_parquet_files(paths: Union[str, List[str]]) -> List[str]:
+    if isinstance(paths, str):
+        paths = [paths]
+
+    parquet_files = []
+    for p in paths:
+        if os.path.isdir(p):
+            for root, _, files in os.walk(p):
+                for f in files:
+                    if f.endswith(".parquet"):
+                        parquet_files.append(os.path.join(root, f))
+        elif os.path.isfile(p) and p.endswith(".parquet"):
+            parquet_files.append(p)
+        else:
+            print(f"Warning: {p} is not a .parquet file or directory.")
+    return parquet_files
+
 
 # logging utilities
 

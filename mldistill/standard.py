@@ -38,6 +38,7 @@ __all__ = ["main"]
 def main(train_data_files, val_data_files, experiment, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience, max_tokens, max_steps, max_seq_length, gradient_accumulation, batch_size, learning_rate):
     times = {}
     with timing(times, key="timing/load_datasets"):
+        print("Loading datasets...")
         train_datasets, val_datasets = load_datasets(train_data_files, val_data_files)
     with timing(times, key="timing/prepare_samplers"):
         train_sampler = RandomSampler(train_datasets, seed=seed)
