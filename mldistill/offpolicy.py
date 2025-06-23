@@ -42,6 +42,7 @@ def distill(
     max_seq_length: int,
     gradient_accumulation: int,
     batch_size: int,
+    learning_rate: float,
 ) -> None:
     with timing(times, key="timing/prepare_dataloaders"):
         accelerator = Accelerator()
@@ -71,10 +72,12 @@ def distill(
     with timing(times, key="timing/prepare_for_training"):
         ce_loss_fn = torch.nn.CrossEntropyLoss()
         kl_loss_fn = torch.nn.KLDivLoss(reduction="batchmean")
-        optimizer = torch.optim.AdamW(student_model.parameters(), lr=1e-3)
-        train_loader, val_loader, student_model, optimizer = accelerator.prepare(train_loader, val_loader, student_model, optimizer)
-        if teacher_model:
-            teacher_model.to(inc_device(student_model.device, world_size if offload_teacher else 0))
+        optimizer = torch.optim.AdamW(student_model.parameters(), lr=learning_rate)
+        if offload_teacher and teacher_model:
+            train_loader, val_loader, student_model, optimizer = accelerator.prepare(train_loader, val_loader, student_model, optimizer)
+            teacher_model.to(inc_device(student_model.device, world_size))
+        else:
+            train_loader, val_loader, student_model, optimizer, teacher_model = accelerator.prepare(train_loader, val_loader, student_model, optimizer, teacher_model)
         if experiment is None:
             experiment = "."
         if run_id is None:

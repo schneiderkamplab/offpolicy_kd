@@ -35,7 +35,8 @@ __all__ = ["main"]
 @click.option('--max-seq-length', default=4096, type=int, help="Maximum sequence length for training (default: 4096)")
 @click.option('--gradient-accumulation', default=2, type=int, help="Gradient accumulation steps (default: 2)")
 @click.option('--batch-size', default=1, type=int, help="Batch size (default: 1)")
-def main(mixture_file, mixture, data_dir, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience, max_tokens, max_steps, max_seq_length, gradient_accumulation, batch_size):
+@click.option('--learning-rate', default=1e-5, type=float, help="Learning rate for training (default: 1e-5)")
+def main(mixture_file, mixture, data_dir, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience, max_tokens, max_steps, max_seq_length, gradient_accumulation, batch_size, learning_rate):
     times = {}
     with timing(times, key="timing/mixture_file"):
         if mixture is None:
@@ -47,7 +48,7 @@ def main(mixture_file, mixture, data_dir, student, teacher, pretrained, distilla
             weights = [float(x) for x in f.readline().split(",")]
         data_files, weights = zip(*((data_file, weight) for data_file, weight in zip(data_files, weights) if weight))
         train_data_files = [str(data_dir / f"train_{data_file}.parquet") for data_file in data_files]
-        val_data_files = [str(data_dir / f"val_{data_file}.parquet") for data_file in data_files]
+        val_data_files = [str(data_dir / f"valid_{data_file}.parquet") for data_file in data_files]
     with timing(times, key="timing/load_datasets"):
         train_datasets, val_datasets = load_datasets(train_data_files, val_data_files)
     with timing(times, key="timing/prepare_samplers"):
@@ -82,6 +83,7 @@ def main(mixture_file, mixture, data_dir, student, teacher, pretrained, distilla
         max_seq_length=max_seq_length,
         gradient_accumulation=gradient_accumulation,
         batch_size=batch_size,
+        learning_rate=learning_rate,
     )
 
 if __name__ == "__main__":
