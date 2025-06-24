@@ -168,7 +168,7 @@ class Trainer():
                 del student_logits, student_flat
                 loss = self.alpha * kl_loss + ce_loss
 
-                loss.backward()
+                self.accelerator.backward(loss)
                 self.micro_step += 1
                 losses[0] += loss.detach()
                 losses[1] += ce_loss.detach()
