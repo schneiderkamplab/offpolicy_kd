@@ -44,6 +44,7 @@ def distill(
     batch_size: int,
     learning_rate: float,
     compile: bool,
+    gradient_checkpointing: bool,
 ) -> None:
     with timing(times, key="timing/prepare_dataloaders"):
         accelerator = Accelerator()
@@ -83,6 +84,12 @@ def distill(
             student_model = torch.compile(student_model)
             if teacher_model is not None:
                 teacher_model = torch.compile(teacher_model)
+        if gradient_checkpointing:
+            student_model.config.use_cache = False
+            student_model.gradient_checkpointing_enable()
+            if teacher_model is not None:
+                teacher_model.config.use_cache = False
+                teacher_model.gradient_checkpointing_enable()
         if experiment is None:
             experiment = "."
         if run_id is None:
