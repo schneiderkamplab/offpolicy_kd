@@ -50,13 +50,10 @@ def load_datasets(
     if not val_data_files:
         raise ValueError("No valid parquet files found for validation data.")
 
-    train_dataset = load_dataset("parquet", data_files=train_data_files, split="train")
-    val_dataset = load_dataset("parquet", data_files=val_data_files, split="train")
+    train_dataset = load_dataset("parquet", data_files=train_data_files, split="train", columns=['input_ids'])
+    val_dataset = load_dataset("parquet", data_files=val_data_files, split="train", columns=['input_ids'])
 
     return train_dataset, val_dataset
-
-
-from typing import Union, List
 
 def find_parquet_files(paths: Union[str, List[str]]) -> List[str]:
     if isinstance(paths, str):
