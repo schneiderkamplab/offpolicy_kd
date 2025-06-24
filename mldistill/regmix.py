@@ -36,7 +36,8 @@ __all__ = ["main"]
 @click.option('--gradient-accumulation', default=2, type=int, help="Gradient accumulation steps (default: 2)")
 @click.option('--batch-size', default=1, type=int, help="Batch size (default: 1)")
 @click.option('--learning-rate', default=1e-5, type=float, help="Learning rate for training (default: 1e-5)")
-def main(mixture_file, mixture, data_dir, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience, max_tokens, max_steps, max_seq_length, gradient_accumulation, batch_size, learning_rate):
+@click.option('--compile', is_flag=True, help="Compile the model with PyTorch's compile feature (default: False)")
+def main(mixture_file, mixture, data_dir, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience, max_tokens, max_steps, max_seq_length, gradient_accumulation, batch_size, learning_rate, compile):
     times = {}
     with timing(times, key="timing/mixture_file"):
         if mixture is None:
@@ -84,6 +85,7 @@ def main(mixture_file, mixture, data_dir, student, teacher, pretrained, distilla
         gradient_accumulation=gradient_accumulation,
         batch_size=batch_size,
         learning_rate=learning_rate,
+        compile=compile,
     )
 
 if __name__ == "__main__":

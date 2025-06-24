@@ -43,6 +43,7 @@ def distill(
     gradient_accumulation: int,
     batch_size: int,
     learning_rate: float,
+    compile: bool,
 ) -> None:
     with timing(times, key="timing/prepare_dataloaders"):
         accelerator = Accelerator()
@@ -78,6 +79,10 @@ def distill(
             teacher_model.to(inc_device(student_model.device, world_size))
         else:
             train_loader, val_loader, student_model, optimizer, teacher_model = accelerator.prepare(train_loader, val_loader, student_model, optimizer, teacher_model)
+        if compile:
+            student_model = torch.compile(student_model)
+            if teacher_model is not None:
+                teacher_model = torch.compile(teacher_model)
         if experiment is None:
             experiment = "."
         if run_id is None:
