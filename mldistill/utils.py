@@ -50,10 +50,16 @@ def load_datasets(
     if not val_data_files:
         raise ValueError("No valid parquet files found for validation data.")
 
-    train_dataset = load_dataset("parquet", data_files=train_data_files, split="train", columns=['input_ids'])
-    val_dataset = load_dataset("parquet", data_files=val_data_files, split="train", columns=['input_ids'])
+    train_datasets = [
+        load_dataset("parquet", data_files=train_data_file, split="train", columns=['input_ids'])
+        for train_data_file in train_data_files
+    ]
+    val_datasets = [
+        load_dataset("parquet", data_files=val_data_file, split="train", columns=['input_ids'])
+        for val_data_file in val_data_files
+    ]
 
-    return train_dataset, val_dataset
+    return train_datasets, val_datasets
 
 def find_parquet_files(paths: Union[str, List[str]]) -> List[str]:
     if isinstance(paths, str):
