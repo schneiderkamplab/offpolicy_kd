@@ -74,6 +74,12 @@ def distill(
     with timing(times, key="timing/prepare_for_training"):
         ce_loss_fn = torch.nn.CrossEntropyLoss()
         kl_loss_fn = torch.nn.KLDivLoss(reduction="batchmean")
+        if gradient_checkpointing:
+            student_model.config.use_cache = False
+            student_model.gradient_checkpointing_enable()
+            if teacher_model is not None:
+                teacher_model.config.use_cache = False
+                teacher_model.gradient_checkpointing_enable()
         optimizer = torch.optim.AdamW(student_model.parameters(), lr=learning_rate)
         if offload_teacher and teacher_model:
             train_loader, val_loader, student_model, optimizer = accelerator.prepare(train_loader, val_loader, student_model, optimizer)
@@ -84,12 +90,6 @@ def distill(
             student_model = torch.compile(student_model)
             if teacher_model is not None:
                 teacher_model = torch.compile(teacher_model)
-        if gradient_checkpointing:
-            student_model.config.use_cache = False
-            student_model.gradient_checkpointing_enable()
-            if teacher_model is not None:
-                teacher_model.config.use_cache = False
-                teacher_model.gradient_checkpointing_enable()
         if experiment is None:
             experiment = "."
         if run_id is None:
