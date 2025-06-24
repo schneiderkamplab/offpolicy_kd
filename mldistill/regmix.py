@@ -38,7 +38,9 @@ __all__ = ["main"]
 @click.option('--learning-rate', default=1e-5, type=float, help="Learning rate for training (default: 1e-5)")
 @click.option('--compile', is_flag=True, help="Compile the model with PyTorch's compile feature (default: False)")
 @click.option('--gradient-checkpointing', is_flag=True, help="Enable gradient checkpointing to save memory (default: False)")
-def main(mixture_file, mixture, data_dir, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience, max_tokens, max_steps, max_seq_length, gradient_accumulation, batch_size, learning_rate, compile, gradient_checkpointing):
+def main(**args):
+    _main(args, **args)
+def _main(args, mixture_file, mixture, data_dir, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience, max_tokens, max_steps, max_seq_length, gradient_accumulation, batch_size, learning_rate, compile, gradient_checkpointing):
     times = {}
     with timing(times, key="timing/mixture_file"):
         if mixture is None:
@@ -57,6 +59,7 @@ def main(mixture_file, mixture, data_dir, student, teacher, pretrained, distilla
         train_sampler = ProportionalSampler(train_datasets, weights, seed=seed)
         val_sampler = ProportionalSampler(val_datasets, weights, seed=seed)
     distill(
+        args=args,
         times=times,
         experiment=mixture,
         train_datasets=train_datasets,

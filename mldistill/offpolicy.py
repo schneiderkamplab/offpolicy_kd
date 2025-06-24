@@ -14,6 +14,7 @@ from .utils import *
 __all__ = ["distill"]
 
 def distill(
+    args: Dict[str, Any],
     times: Dict[str, Any],
     experiment: str,
     train_datasets: List[torch.utils.data.Dataset],
@@ -125,6 +126,7 @@ def distill(
             gradient_accumulation=gradient_accumulation,
         )
     main_logger = Logger(None, rank, sys.stdout)
+    main_logger.log(step=0, **args)
     main_logger.log(step=0, **times)
 
     times = {}
