@@ -164,7 +164,8 @@ class Trainer():
                 student_flat = student_logits.view(-1, student_logits.size(-1))
                 labels_flat = labels.view(-1)
 
-                tokens += input_ids.size(0) * input_ids.size(1)
+                batch_size = input_ids.size(0)
+                tokens += batch_size * input_ids.size(1)
                 ce_loss = self.ce_loss_fn(student_flat, labels_flat)
                 del input_ids, labels, labels_flat
 
@@ -191,6 +192,7 @@ class Trainer():
                     self.accelerator.reduce(losses, reduction="mean")
                     self.accelerator.reduce(tokens, reduction="sum")
                     self.tokens += tokens
+                    losses /= self.gradient_accumulation * batch_size
                     self.train_logger.log(
                         step=self.step,
                         loss=losses[0].item(),
