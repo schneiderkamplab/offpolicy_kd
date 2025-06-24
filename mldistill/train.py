@@ -62,6 +62,14 @@ class Trainer():
         self,
         num_steps: int = None,
     ) -> dict[str, float]:
+        if not len(self.val_loader):
+            return {
+                "loss": float('inf'),
+                "ce_loss": float('inf'),
+                "kl_loss": float('inf'),
+                "acc": 0.0,
+                "ppl": float('inf'),
+            }
         if num_steps is None:
             num_steps = self.val_steps
         self.student_model.eval()
