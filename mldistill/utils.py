@@ -2,6 +2,7 @@ from datasets import load_dataset
 from datetime import datetime
 from json import dumps
 import os
+import gc
 from pathlib import Path
 import torch
 from torch.nn.utils.rnn import pad_sequence
@@ -15,6 +16,8 @@ __all__ = [
     'calculate_accuracy',
     'inc_device',
     'load_datasets',
+    'optimizer_to',
+    'collect'
 ]
 
 # setup utilities
@@ -37,6 +40,7 @@ def inc_device(
 #     train_datasets = [load_dataset("parquet", data_files=train_data_file, split="train") for train_data_file in train_data_files]
 #     val_datasets = [load_dataset("parquet", data_files=val_data_file, split="train") for val_data_file in val_data_files]
 #     return train_datasets, val_datasets
+
 
 def load_datasets(
     train_data_paths: Union[str, List[str]],
@@ -196,3 +200,17 @@ def calculate_accuracy(
     correct = (preds == labels).sum()
     total = labels.numel()
     return correct / total
+
+def optimizer_to(optimizer, device):
+    for state in optimizer.state.values():
+        if isinstance(state, dict):
+            for k, v in state.items():
+                if isinstance(v, torch.Tensor):
+                    state[k] = v.to(device)
+
+def collect():
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    if torch.backends.mps.is_available():
+        torch.mps.empty_cache()

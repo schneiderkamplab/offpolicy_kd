@@ -32,6 +32,7 @@ class Trainer():
         max_tokens: int | None,
         max_steps: int | None,
         gradient_accumulation: int,
+        offload_optimizer: bool,
     ):
         self.student_model = student_model
         self.teacher_model = teacher_model
@@ -57,6 +58,7 @@ class Trainer():
         self.max_tokens = max_tokens
         self.max_steps = max_steps
         self.gradient_accumulation = gradient_accumulation
+        self.offload_optimizer = offload_optimizer
 
     def evaluate(
         self,
@@ -127,10 +129,12 @@ class Trainer():
         self,
         num_epochs: int = 1,
     ) -> None:
-        if self.collect_every is None:
-            collect_every = self.val_every
+        collect_every = self.val_every if self.collect_every is None else self.collect_every
         self.student_model.train()
         self.optimizer.zero_grad()
+        if self.offload_optimizer:
+            optimizer_to(optimizer=self.optimizer, device='cpu')
+        
         teacher_device = self.student_model.device
         if self.teacher_model:
             self.teacher_model.eval()
@@ -187,8 +191,14 @@ class Trainer():
                 if self.micro_step % self.gradient_accumulation == 0:
                     self.step += 1
                     progress_bar.update(1)
+                    if self.offload_optimizer:
+                        optimizer_to(optimizer=self.optimizer, device=self.student_model.device)
+                        collect()
                     self.optimizer.step()
                     self.optimizer.zero_grad()
+                    if self.offload_optimizer:
+                        optimizer_to(optimizer=self.optimizer, device='cpu')
+                        collect()
                     self.accelerator.reduce(losses, reduction="mean")
                     self.accelerator.reduce(tokens, reduction="sum")
                     self.tokens += tokens
@@ -221,11 +231,7 @@ class Trainer():
                         if self.patience_counter >= self.patience:
                             break
                     if self.step % collect_every == 0:
-                        gc.collect()
-                        if torch.cuda.is_available():
-                            torch.cuda.empty_cache()
-                        if torch.backends.mps.is_available():
-                            torch.mps.empty_cache()
+                        collect()
 
             if self.max_tokens and self.tokens >= self.max_tokens:
                 reason = f"Reached {self.tokens} tokens with a maximum of {self.max_tokens}."

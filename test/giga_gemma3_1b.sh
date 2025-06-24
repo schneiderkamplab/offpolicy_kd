@@ -31,6 +31,5 @@ accelerate launch \
   --learning-rate 1e-5 \
   --val-every 100 \
   --save-every 100 \
-  --collect-every 1 \
 > >(tee logs/$JOBID/stdout.txt) \
 2> >(tee logs/$JOBID/stderr.txt >&2)

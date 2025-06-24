@@ -46,6 +46,7 @@ def distill(
     learning_rate: float,
     compile: bool,
     gradient_checkpointing: bool,
+    offload_optimizer: bool,
 ) -> None:
     with timing(times, key="timing/prepare_dataloaders"):
         accelerator = Accelerator()
@@ -78,9 +79,6 @@ def distill(
         if gradient_checkpointing:
             student_model.config.use_cache = False
             student_model.gradient_checkpointing_enable()
-            if teacher_model is not None:
-                teacher_model.config.use_cache = False
-                teacher_model.gradient_checkpointing_enable()
         optimizer = torch.optim.AdamW(student_model.parameters(), lr=learning_rate)
         if offload_teacher and teacher_model:
             train_loader, val_loader, student_model, optimizer = accelerator.prepare(train_loader, val_loader, student_model, optimizer)
@@ -124,6 +122,7 @@ def distill(
             max_tokens=max_tokens,
             max_steps=max_steps,
             gradient_accumulation=gradient_accumulation,
+            offload_optimizer=offload_optimizer,
         )
     main_logger = Logger(None, rank, sys.stdout)
     main_logger.log(step=0, **args)
