@@ -115,7 +115,7 @@ class Logger():
         if self.disable:
             return
         if isinstance(file, (str, os.PathLike)):
-            file = open(self.log_path / file, "at")
+            file = open(self.log_path / file, "wt")
         self.files.append((file, freq))
 
     def log(
