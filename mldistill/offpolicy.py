@@ -47,6 +47,8 @@ def distill(
     compile: bool,
     gradient_checkpointing: bool,
     offload_optimizer: bool,
+    overwrite: bool,
+    yes: bool,
 ) -> None:
     with timing(times, key="timing/prepare_dataloaders"):
         accelerator = Accelerator()
@@ -96,10 +98,10 @@ def distill(
         save_path = Path(save_path) / experiment / run_id
         check_pointer = CheckPointer(student_model, save_path, save_template, save_every=save_every, disable=rank)
         log_path = Path(log_path) / experiment / run_id
-        train_logger = Logger(log_path, rank)
+        train_logger = Logger(log_path, rank, overwrite, yes)
         train_logger.append(f"train.jsonl")
         train_logger.append(sys.stdout, log_every)
-        val_logger = Logger(log_path, rank)
+        val_logger = Logger(log_path, rank, overwrite, yes)
         val_logger.append(f"val.jsonl")
         val_logger.append(sys.stdout, val_every)
         trainer = Trainer(

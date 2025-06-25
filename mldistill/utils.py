@@ -1,3 +1,4 @@
+import click
 from datasets import load_dataset
 from datetime import datetime
 from json import dumps
@@ -91,11 +92,15 @@ class Logger():
         self,
         log_path: str | None,
         disable: bool = False,
+        overwrite: bool = False,
+        yes: bool = False,
         *files: List[str | os.PathLike | IO | Tuple[str | os.PathLike | IO, int]],
     ) -> None:
         self.log_path = Path("." if log_path is None else log_path)
         self.log_path.mkdir(parents=True, exist_ok=True)
         self.disable = disable
+        self.overwrite = overwrite
+        self.yes = yes
         self.files = []
         if self.disable:
             return 
@@ -119,7 +124,14 @@ class Logger():
         if self.disable:
             return
         if isinstance(file, (str, os.PathLike)):
-            file = open(self.log_path / file, "wt")
+            path = self.log_path / file
+            if path.exists():
+                if not self.overwrite:
+                    raise click.BadParameter(f"Output file '{path}' already exists. Use --overwrite to overwrite.")
+                if not self.yes:
+                    if not click.confirm(f"Output file '{path}' already exists. Do you want to delete it?")
+                        raise click.Abort()
+            file = open(path, "wt")
         self.files.append((file, freq))
 
     def log(

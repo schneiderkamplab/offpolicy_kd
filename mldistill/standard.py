@@ -38,9 +38,11 @@ __all__ = ["main"]
 @click.option('--compile', is_flag=True, help="Compile the model with PyTorch's compile feature (default: False)")
 @click.option('--gradient-checkpointing', is_flag=True, help="Enable gradient checkpointing to save memory (default: False)")
 @click.option('--offload-optimizer', is_flag=True, help="Offload optimizer state to CPU to save GPU memory (default: False)")
+@click.option('--overwrite', is_flag=True, help="Overwrite existing checkpoints and logs (default: False)")
+@click.option('--yes', is_flag=True, help="Automatically answer yes to prompts (default: False)")
 def main(**args):
     _main(args, **args)
-def _main(args, train_data_files, val_data_files, experiment, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience, max_tokens, max_steps, max_seq_length, gradient_accumulation, batch_size, learning_rate, compile, gradient_checkpointing, offload_optimizer):
+def _main(args, train_data_files, val_data_files, experiment, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience, max_tokens, max_steps, max_seq_length, gradient_accumulation, batch_size, learning_rate, compile, gradient_checkpointing, offload_optimizer, overwrite, yes):
     times = {}
     with timing(times, key="timing/load_datasets"):
         print("Loading datasets...")
@@ -82,6 +84,8 @@ def _main(args, train_data_files, val_data_files, experiment, student, teacher, 
         compile=compile,
         gradient_checkpointing=gradient_checkpointing,
         offload_optimizer=offload_optimizer,
+        overwrite=overwrite,
+        yes=yes,
     )
 
 if __name__ == "__main__":
