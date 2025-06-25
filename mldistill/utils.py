@@ -129,7 +129,7 @@ class Logger():
                 if not self.overwrite:
                     raise click.BadParameter(f"Output file '{path}' already exists. Use --overwrite to overwrite.")
                 if not self.yes:
-                    if not click.confirm(f"Output file '{path}' already exists. Do you want to delete it?")
+                    if not click.confirm(f"Output file '{path}' already exists. Do you want to delete it?"):
                         raise click.Abort()
             file = open(path, "wt")
         self.files.append((file, freq))
