@@ -10,7 +10,7 @@ pip install -e .
 #-m mldistill.standard test/gemma3/train_test1.parquet --val-data-files test/gemma3/train_test2.parquet --num-epochs 10 --val-every 10 --save-every 100 --pretrained --distillation $@
 export NCCL_MAX_NCHANNELS=72
 export NCCL_MIN_NCHANNELS=72
-export JOBID=giga_gemma3_1b
+export JOBID=test
 mkdir -p logs/$JOBID
 accelerate launch \
   --multi_gpu \
@@ -21,9 +21,9 @@ accelerate launch \
   --mixed_precision bf16 \
   -m mldistill.standard ../../data/train-giga-gemma3\
   --val-data-files ../../data/valid-giga-gemma3 \
-  --max-seq-length 8192 \
+  --max-seq-length 2048 \
   --batch-size 1 \
-  --gradient-accumulation 32 \
+  --gradient-accumulation 1 \
   --student models/gemma-3-1b-pt \
   --run-id $JOBID \
   --pretrained \
@@ -32,5 +32,9 @@ accelerate launch \
   --val-every 100 \
   --save-every 100 \
   --collect-every 1 \
+  --attn-implementation eager \
+  --overwrite \
+  --yes \
+  --compile \
 > >(tee logs/$JOBID/stdout.txt) \
 2> >(tee logs/$JOBID/stderr.txt >&2)
