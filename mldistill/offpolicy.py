@@ -130,7 +130,11 @@ def distill(
 
     times = {}
     with timing(times, key="timing/train"):
-        trainer.train(num_epochs=num_epochs)
+        try:
+            trainer.train(num_epochs=num_epochs)
+        finally:
+            if torch.distributed.is_initialized():
+                torch.distributed.destroy_process_group()
     times["best_val_loss"] = trainer.best_val_loss
     times["total_steps"] = trainer.step
     main_logger.log(step=0, **times)
