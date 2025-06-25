@@ -49,6 +49,7 @@ def distill(
     offload_optimizer: bool,
     overwrite: bool,
     yes: bool,
+    attn_implementation: str,
 ) -> None:
     with timing(times, key="timing/prepare_dataloaders"):
         accelerator = Accelerator()
@@ -63,12 +64,13 @@ def distill(
     if distillation:
         with timing(times, key="timing/load_teacher_model"):
             teacher_config = AutoConfig.from_pretrained(teacher)
+            teacher_config.attn_implementation = attn_implementation
             teacher_config.max_position_embeddings = max_seq_length
             teacher_model = AutoModelForCausalLM.from_pretrained(teacher, config=teacher_config)
 
     with timing(times, key="timing/load_student_model"):
         student_config = AutoConfig.from_pretrained(student)
-        student_config.attn_implementation = "eager"
+        student_config.attn_implementation = attn_implementation
         student_config.max_position_embeddings = max_seq_length
         if pretrained:
             student_model = AutoModelForCausalLM.from_pretrained(student, config=student_config, attn_implementation='eager')
