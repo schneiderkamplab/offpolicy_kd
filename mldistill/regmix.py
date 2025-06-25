@@ -42,6 +42,7 @@ __all__ = ["main"]
 @click.option('--overwrite', is_flag=True, help="Overwrite existing checkpoints and logs (default: False)")
 @click.option('--yes', is_flag=True, help="Automatically answer yes to prompts (default: False)")
 @click.option('--attn-implementation', default='eager', type=click.Choice(['eager', 'flash_attention', 'flash_attention_2', 'mem_efficient'], case_sensitive=False), help="Attention implementation to use (default: eager)")
+@click.option('--lr-scheduler-type', default="cosine", type=click.Choice(['linear', 'cosine', 'cosine_with_restarts']))
 def main(**args):
     _main(args, **args)
 def _main(args, mixture_file, mixture, data_dir, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience, max_tokens, max_steps, max_seq_length, gradient_accumulation, batch_size, learning_rate, compile, gradient_checkpointing, offload_optimizer, overwrite, yes, attn_implementation):
@@ -99,6 +100,7 @@ def _main(args, mixture_file, mixture, data_dir, student, teacher, pretrained, d
         overwrite=overwrite,
         yes=yes,
         attn_implementation=attn_implementation,
+        lr_scheduler_type=lr_scheduler_type,
     )
 
 if __name__ == "__main__":

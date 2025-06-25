@@ -5,7 +5,7 @@ from pathlib import Path
 import sys
 import torch
 from torch.utils.data import ConcatDataset, DataLoader
-from transformers import AutoModelForCausalLM, AutoConfig
+from transformers import AutoModelForCausalLM, AutoConfig, get_scheduler
 from typing import Any, Dict, List
 
 from .train import Trainer
@@ -40,6 +40,7 @@ def distill(
     patience: int,
     max_tokens: int | None,
     max_steps: int | None,
+    warmup_steps: float | None,
     max_seq_length: int,
     gradient_accumulation: int,
     batch_size: int,
@@ -50,6 +51,7 @@ def distill(
     overwrite: bool,
     yes: bool,
     attn_implementation: str,
+    lr_scheduler_type: str,
 ) -> None:
     with timing(times, key="timing/prepare_dataloaders"):
         accelerator = Accelerator()
@@ -84,6 +86,12 @@ def distill(
             student_model.config.use_cache = False
             student_model.gradient_checkpointing_enable()
         optimizer = torch.optim.AdamW(student_model.parameters(), lr=learning_rate)
+        lr_scheduler = get_scheduler(
+            name=lr_scheduler_type,
+            optimizer=optimizer,
+            num_warmup_steps=max_steps * warmup_steps if (max_steps is not None and warmup_steps is not None) else 0,
+            num_training_steps=max_steps if max_steps is not None else len(train_loader) // gradient_accumulation,
+        )
         if offload_teacher and teacher_model:
             train_loader, val_loader, student_model, optimizer = accelerator.prepare(train_loader, val_loader, student_model, optimizer)
             teacher_model.to(inc_device(student_model.device, world_size))
@@ -114,6 +122,7 @@ def distill(
             ce_loss_fn=ce_loss_fn,
             kl_loss_fn=kl_loss_fn,
             optimizer=optimizer,
+            lr_scheduler=lr_scheduler, 
             alpha=alpha,
             collect_every=collect_every,
             val_every=val_every,
@@ -124,7 +133,7 @@ def distill(
             patience=patience,
             accelerator=accelerator,
             max_tokens=max_tokens,
-            max_steps=max_steps,
+            max_steps=max_steps, 
             gradient_accumulation=gradient_accumulation,
             offload_optimizer=offload_optimizer,
         )

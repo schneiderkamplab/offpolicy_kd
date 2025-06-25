@@ -3,6 +3,7 @@ import gc
 import sys
 import torch
 from torch.nn import functional as F
+from transformers import SchedulerType
 from tqdm import tqdm
 
 from .utils import *
@@ -20,6 +21,7 @@ class Trainer():
         train_logger: Logger,
         val_logger: Logger,
         optimizer: torch.optim.Optimizer,
+        lr_scheduler: SchedulerType,
         ce_loss_fn: torch.nn.Module,
         kl_loss_fn: torch.nn.Module,
         alpha: float,
@@ -41,6 +43,7 @@ class Trainer():
         self.train_logger = train_logger
         self.val_logger = val_logger
         self.optimizer = optimizer
+        self.lr_scheduler = lr_scheduler
         self.ce_loss_fn = ce_loss_fn
         self.kl_loss_fn = kl_loss_fn
         self.alpha = alpha
@@ -196,6 +199,7 @@ class Trainer():
                         collect()
                     self.optimizer.step()
                     self.optimizer.zero_grad()
+                    self.lr_scheduler.step()
                     if self.offload_optimizer:
                         optimizer_to(optimizer=self.optimizer, device='cpu')
                         collect()

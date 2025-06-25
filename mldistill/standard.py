@@ -31,6 +31,7 @@ __all__ = ["main"]
 @click.option('--patience', default=10, type=int, help="Patience for early stopping (default: 10)")
 @click.option('--max-tokens', default=None, type=int, help="Maximum number of training tokens (default: None, meaning no limit)")
 @click.option('--max-steps', default=None, type=int, help="Maximum number of training steps (default: None, meaning no limit)")
+@click.option('--warmup-steps', default=None, type=float, help="warm-upsteps in percentage  (default: None)")
 @click.option('--max-seq-length', default=4096, type=int, help="Maximum sequence length for training (default: 4096)")
 @click.option('--gradient-accumulation', default=2, type=int, help="Gradient accumulation steps (default: 2)")
 @click.option('--batch-size', default=1, type=int, help="Batch size (default: 1)")
@@ -41,9 +42,10 @@ __all__ = ["main"]
 @click.option('--overwrite', is_flag=True, help="Overwrite existing checkpoints and logs (default: False)")
 @click.option('--yes', is_flag=True, help="Automatically answer yes to prompts (default: False)")
 @click.option('--attn-implementation', default='eager', type=click.Choice(['eager', 'flash_attention', 'flash_attention_2', 'mem_efficient'], case_sensitive=False), help="Attention implementation to use (default: eager)")
+@click.option('--lr-scheduler-type', default="cosine", type=click.Choice(['linear', 'cosine', 'cosine_with_restarts']))
 def main(**args):
     _main(args, **args)
-def _main(args, train_data_files, val_data_files, experiment, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience, max_tokens, max_steps, max_seq_length, gradient_accumulation, batch_size, learning_rate, compile, gradient_checkpointing, offload_optimizer, overwrite, yes, attn_implementation):
+def _main(args, train_data_files, val_data_files, experiment, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience, max_tokens, max_steps, warmup_steps, max_seq_length, gradient_accumulation, batch_size, learning_rate, compile, gradient_checkpointing, offload_optimizer, overwrite, yes, attn_implementation, lr_scheduler_type):
     times = {}
     with timing(times, key="timing/load_datasets"):
         print("Loading datasets...")
@@ -78,6 +80,7 @@ def _main(args, train_data_files, val_data_files, experiment, student, teacher, 
         patience=patience,
         max_tokens=max_tokens,
         max_steps=max_steps,
+        warmup_steps=warmup_steps,
         max_seq_length=max_seq_length,
         gradient_accumulation=gradient_accumulation,
         batch_size=batch_size,
@@ -88,6 +91,7 @@ def _main(args, train_data_files, val_data_files, experiment, student, teacher, 
         overwrite=overwrite,
         yes=yes,
         attn_implementation=attn_implementation,
+        lr_scheduler_type=lr_scheduler_type,
     )
 
 if __name__ == "__main__":
