@@ -107,7 +107,7 @@ class Trainer():
                     del teacher_logits, teacher_flat
                 else:
                     kl_loss = torch.tensor(0)
-                del student_logits, student_flat
+                del student_logits
                 loss = self.alpha * kl_loss + ce_loss
 
                 losses_acc[0] += loss.detach()
@@ -118,6 +118,7 @@ class Trainer():
                 preds = torch.argmax(student_flat, dim=-1)
                 acc = calculate_accuracy(preds, labels_flat)
                 losses_acc[3] += acc.detach()
+                del student_flat, preds, labels_flat
                 count += input_ids.size(0)
 
         self.accelerator.reduce(losses_acc, reduction="mean")
