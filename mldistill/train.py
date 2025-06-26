@@ -101,7 +101,7 @@ class Trainer():
                 labels_flat = labels.view(-1)
 
                 ce_loss = self.ce_loss_fn(student_flat, labels_flat)
-                del input_ids, labels, labels_flat
+                del input_ids, labels
                 if self.teacher_model:
                     kl_loss = self.kl_loss_fn(F.log_softmax(student_flat, dim=-1), F.softmax(teacher_flat[:, :student_flat.size(dim=1)], dim=-1))
                     del teacher_logits, teacher_flat
