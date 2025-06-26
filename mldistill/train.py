@@ -99,6 +99,7 @@ class Trainer():
                 labels = input_ids[:, 1:].contiguous().to(teacher_device)
                 student_flat = student_logits.view(-1, student_logits.size(-1))
                 labels_flat = labels.view(-1)
+                batch_size = input_ids.size(0)
 
                 ce_loss = self.ce_loss_fn(student_flat, labels_flat)
                 del input_ids, labels
@@ -119,7 +120,7 @@ class Trainer():
                 acc = calculate_accuracy(preds, labels_flat)
                 losses_acc[3] += acc.detach()
                 del student_flat, preds, labels_flat
-                count += input_ids.size(0)
+                count += batch_size
 
         self.accelerator.reduce(losses_acc, reduction="mean")
         losses_acc /= count
