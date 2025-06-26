@@ -86,11 +86,13 @@ def distill(
             student_model.config.use_cache = False
             student_model.gradient_checkpointing_enable()
         optimizer = torch.optim.AdamW(student_model.parameters(), lr=learning_rate)
+        if max_steps is None:
+            max_steps = len(train_loader) // gradient_accumulation * num_epochs
         lr_scheduler = get_scheduler(
             name=lr_scheduler_type,
             optimizer=optimizer,
-            num_warmup_steps=max_steps * warmup_steps if (max_steps is not None and warmup_steps is not None) else 0,
-            num_training_steps=max_steps if max_steps is not None else len(train_loader) // gradient_accumulation,
+            num_warmup_steps=0 if warmup_steps is None else int(max_steps * warmup_steps),
+            num_training_steps=max_steps,
         )
         if offload_teacher and teacher_model:
             train_loader, val_loader, student_model, optimizer = accelerator.prepare(train_loader, val_loader, student_model, optimizer)
