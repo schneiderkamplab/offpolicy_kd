@@ -89,7 +89,6 @@ class Trainer():
             for i, batch in zip(range(self.val_steps), self.val_loader):
                 input_ids = batch["input_ids"]
                 attention_mask = batch["attention_mask"]
-                teacher_device = self.student_model.device
                 if self.teacher_model:
                     teacher_logits = self.teacher_model(input_ids=input_ids.to(teacher_device), attention_mask=attention_mask.to(teacher_device)).logits
                     teacher_logits = teacher_logits[:, :-1, :].contiguous()
@@ -222,7 +221,7 @@ class Trainer():
                     if self.max_steps and self.step >= self.max_steps:
                         break
                     if self.step % self.val_every == 0:
-                        eval_result = self.evaluate()
+                        eval_result = self.evaluate(num_steps=self.val_steps)
                         self.val_logger.log(step=self.step, **eval_result)
 
                         if eval_result["loss"] < self.best_val_loss:
