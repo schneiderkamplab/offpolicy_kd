@@ -94,21 +94,26 @@ class Trainer():
                     teacher_logits = teacher_logits[:, :-1, :].contiguous()
                     teacher_flat = teacher_logits.view(-1, teacher_logits.size(-1))
                 student_logits = self.student_model(input_ids=input_ids, attention_mask=attention_mask).logits.to(teacher_device)
+                del attention_mask
                 student_logits = student_logits[:, :-1, :].contiguous()
                 labels = input_ids[:, 1:].contiguous().to(teacher_device)
                 student_flat = student_logits.view(-1, student_logits.size(-1))
                 labels_flat = labels.view(-1)
 
                 ce_loss = self.ce_loss_fn(student_flat, labels_flat)
+                del input_ids, labels, labels_flat
                 if self.teacher_model:
                     kl_loss = self.kl_loss_fn(F.log_softmax(student_flat, dim=-1), F.softmax(teacher_flat[:, :student_flat.size(dim=1)], dim=-1))
+                    del teacher_logits, teacher_flat
                 else:
                     kl_loss = torch.tensor(0)
+                del student_logits, student_flat
                 loss = self.alpha * kl_loss + ce_loss
 
                 losses_acc[0] += loss.detach()
                 losses_acc[1] += ce_loss.detach()
                 losses_acc[2] += kl_loss.detach()
+                del ce_loss, kl_loss, loss
 
                 preds = torch.argmax(student_flat, dim=-1)
                 acc = calculate_accuracy(preds, labels_flat)
