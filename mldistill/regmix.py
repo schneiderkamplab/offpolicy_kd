@@ -32,6 +32,7 @@ __all__ = ["main"]
 @click.option('--patience', default=10, type=int, help="Patience for early stopping (default: 10)")
 @click.option('--max-tokens', default=None, type=int, help="Maximum number of training tokens (default: None, meaning no limit)")
 @click.option('--max-steps', default=None, type=int, help="Maximum number of training steps (default: None, meaning no limit)")
+@click.option('--warmup-steps', default=None, type=float, help="warm-upsteps in percentage  (default: None)")
 @click.option('--max-seq-length', default=4096, type=int, help="Maximum sequence length for training (default: 4096)")
 @click.option('--gradient-accumulation', default=2, type=int, help="Gradient accumulation steps (default: 2)")
 @click.option('--batch-size', default=1, type=int, help="Batch size (default: 1)")
@@ -45,7 +46,7 @@ __all__ = ["main"]
 @click.option('--lr-scheduler-type', default="cosine", type=click.Choice(['linear', 'cosine', 'cosine_with_restarts']))
 def main(**args):
     _main(args, **args)
-def _main(args, mixture_file, mixture, data_dir, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience, max_tokens, max_steps, max_seq_length, gradient_accumulation, batch_size, learning_rate, compile, gradient_checkpointing, offload_optimizer, overwrite, yes, attn_implementation, lr_scheduler_type):
+def _main(args, mixture_file, mixture, data_dir, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience, max_tokens, max_steps, max_seq_length, gradient_accumulation, batch_size, learning_rate, compile, gradient_checkpointing, offload_optimizer, overwrite, yes, attn_implementation, lr_scheduler_type, warmup_steps):
     times = {}
     with timing(times, key="timing/mixture_file"):
         if mixture is None:
@@ -101,6 +102,7 @@ def _main(args, mixture_file, mixture, data_dir, student, teacher, pretrained, d
         yes=yes,
         attn_implementation=attn_implementation,
         lr_scheduler_type=lr_scheduler_type,
+        warmup_steps=warmup_steps,
     )
 
 if __name__ == "__main__":
