@@ -91,9 +91,9 @@ class Logger():
     def __init__(
         self,
         log_path: str | None,
-        disable: bool = False,
-        overwrite: bool = False,
-        yes: bool = False,
+        disable: bool,
+        overwrite: bool,
+        yes: bool,
         *files: List[str | os.PathLike | IO | Tuple[str | os.PathLike | IO, int]],
     ) -> None:
         self.log_path = Path("." if log_path is None else log_path)

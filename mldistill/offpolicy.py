@@ -137,7 +137,7 @@ def distill(
             gradient_accumulation=gradient_accumulation,
             offload_optimizer=offload_optimizer,
         )
-    main_logger = Logger(None, rank, sys.stdout)
+    main_logger = Logger(None, rank, overwrite, yes, sys.stdout)
     main_logger.log(step=0, **args)
     main_logger.log(step=0, **times)
 
