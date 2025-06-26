@@ -148,7 +148,7 @@ class Trainer():
         self.val_logger.log(step=self.step, **eval_result)
         losses = torch.zeros(3, device=teacher_device, dtype=torch.float32)
         tokens = torch.tensor(0, device=teacher_device, dtype=torch.int64)
-        progress_bar = tqdm(self.train_loader, unit="batches", total=num_epochs * len(self.train_loader) // self.gradient_accumulation)
+        progress_bar = tqdm(self.train_loader, unit="batches", total=self.max_steps)
         for epoch in range(num_epochs):
             progress_bar.set_description(f"Epoch {epoch + 1}/{num_epochs}")
             for batch in self.train_loader:
