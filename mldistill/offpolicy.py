@@ -161,7 +161,7 @@ def distill(
             offload_optimizer=offload_optimizer,
             initial_step=initial_step,
         )
-    main_logger = Logger(None, rank, overwrite, yes, sys.stdout)
+    main_logger = Logger(None, rank, overwrite, yes, sys.stderr if evaluate_only else sys.stdout)
     main_logger.log(step=0, **args)
     main_logger.log(step=0, **times)
 
@@ -172,7 +172,8 @@ def distill(
         finally:
             if torch.distributed.is_initialized():
                 torch.distributed.destroy_process_group()
-        main_logger.log(step=initial_step, **eval_result)
+        eval_logger = Logger(None, rank, overwrite, yes, sys.stdout)
+        eval_logger.log(step=initial_step, **eval_result)
     else:
         with timing(times, key="timing/train"):
             try:
