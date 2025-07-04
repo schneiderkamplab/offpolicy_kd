@@ -46,6 +46,7 @@ def inc_device(
 def load_datasets(
     train_data_paths: Union[str, List[str]],
     val_data_paths: Union[str, List[str]],
+    evaluate_only: bool,
 ):
     train_data_files = find_parquet_files(train_data_paths)
     val_data_files = find_parquet_files(val_data_paths)
@@ -55,7 +56,7 @@ def load_datasets(
     if not val_data_files:
         raise ValueError("No valid parquet files found for validation data.")
 
-    train_datasets = [
+    train_datasets = None if evaluate_only else [
         load_dataset("parquet", data_files=train_data_file, split="train", columns=['input_ids'])
         for train_data_file in train_data_files
     ]

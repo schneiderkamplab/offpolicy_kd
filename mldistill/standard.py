@@ -43,15 +43,17 @@ __all__ = ["main"]
 @click.option('--yes', is_flag=True, help="Automatically answer yes to prompts (default: False)")
 @click.option('--attn-implementation', default='eager', type=click.Choice(['eager', 'flash_attention', 'flash_attention_2', 'mem_efficient'], case_sensitive=False), help="Attention implementation to use (default: eager)")
 @click.option('--lr-scheduler-type', default="cosine", type=click.Choice(['linear', 'cosine', 'cosine_with_restarts']))
+@click.option('--evaluate-only', is_flag=True, help="Only evaluate the model without training (default: False)")
+@click.option('--load-checkpoint', type=click.Path(exists=True), help="Path to a checkpoint to load the model from (default: None)")
 def main(**args):
     _main(args, **args)
-def _main(args, train_data_files, val_data_files, experiment, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience, max_tokens, max_steps, warmup_steps, max_seq_length, gradient_accumulation, batch_size, learning_rate, compile, gradient_checkpointing, offload_optimizer, overwrite, yes, attn_implementation, lr_scheduler_type):
+def _main(args, train_data_files, val_data_files, experiment, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience, max_tokens, max_steps, warmup_steps, max_seq_length, gradient_accumulation, batch_size, learning_rate, compile, gradient_checkpointing, offload_optimizer, overwrite, yes, attn_implementation, lr_scheduler_type, evaluate_only, load_checkpoint):
     times = {}
     with timing(times, key="timing/load_datasets"):
         print("Loading datasets...")
-        train_datasets, val_datasets = load_datasets(train_data_files, val_data_files)
+        train_datasets, val_datasets = load_datasets(train_data_files, val_data_files, evaluate_only)
     with timing(times, key="timing/prepare_samplers"):
-        train_sampler = RandomSampler(train_datasets, seed=seed)
+        train_sampler = None if evaluate_only else RandomSampler(train_datasets, seed=seed)
         val_sampler = RandomSampler(val_datasets, seed=seed)
     distill(
         args=args,
@@ -92,6 +94,8 @@ def _main(args, train_data_files, val_data_files, experiment, student, teacher, 
         yes=yes,
         attn_implementation=attn_implementation,
         lr_scheduler_type=lr_scheduler_type,
+        evaluate_only=evaluate_only,
+        load_checkpoint=load_checkpoint,
     )
 
 if __name__ == "__main__":

@@ -52,14 +52,16 @@ def distill(
     yes: bool,
     attn_implementation: str,
     lr_scheduler_type: str,
+    evaluate_only: bool,
+    load_checkpoint: str | None,
 ) -> None:
     with timing(times, key="timing/prepare_dataloaders"):
         accelerator = Accelerator()
         rank = accelerator.process_index
         world_size = accelerator.num_processes
         _collate_fn = partial(collate_fn, max_seq_length=max_seq_length)
-        train_combined_dataset = ConcatDataset(train_datasets)
-        train_loader = DataLoader(train_combined_dataset, sampler=train_sampler, batch_size=batch_size, shuffle=False, collate_fn=_collate_fn, num_workers=0)
+        train_combined_dataset = None if evaluate_only else ConcatDataset(train_datasets)
+        train_loader = None if evaluate_only else DataLoader(train_combined_dataset, sampler=train_sampler, batch_size=batch_size, shuffle=False, collate_fn=_collate_fn, num_workers=0)
         val_combined_dataset = ConcatDataset(val_datasets)
         val_loader = DataLoader(val_combined_dataset, sampler=val_sampler, batch_size=batch_size, shuffle=False, collate_fn=collate_fn, num_workers=0)
     teacher_model = None
@@ -78,44 +80,56 @@ def distill(
             student_model = AutoModelForCausalLM.from_pretrained(student, config=student_config, attn_implementation='eager')
         else:
             student_model = AutoModelForCausalLM.from_config(student_config, attn_implementation='eager')
+        if load_checkpoint is None:
+            initial_step = 0
+        else:
+            initial_step = int(Path(load_checkpoint).stem.split("step")[-1])
+            student_model.load_state_dict(torch.load(load_checkpoint, map_location="cpu"))
 
     with timing(times, key="timing/prepare_for_training"):
         ce_loss_fn = torch.nn.CrossEntropyLoss()
         kl_loss_fn = torch.nn.KLDivLoss(reduction="batchmean")
-        if gradient_checkpointing:
-            student_model.config.use_cache = False
-            student_model.gradient_checkpointing_enable()
-        optimizer = torch.optim.AdamW(student_model.parameters(), lr=learning_rate)
-        if max_steps is None:
-            max_steps = len(train_loader) // gradient_accumulation // world_size * num_epochs
-        lr_scheduler = get_scheduler(
-            name=lr_scheduler_type,
-            optimizer=optimizer,
-            num_warmup_steps=0 if warmup_steps is None else int(max_steps * warmup_steps),
-            num_training_steps=max_steps,
-        )
-        if offload_teacher and teacher_model:
-            train_loader, val_loader, student_model, optimizer = accelerator.prepare(train_loader, val_loader, student_model, optimizer)
-            teacher_model.to(inc_device(student_model.device, world_size))
+        if evaluate_only:
+            if offload_teacher and teacher_model:
+                val_loader, student_model = accelerator.prepare(val_loader, student_model)
+                teacher_model.to(inc_device(student_model.device, world_size))
+            else:
+                val_loader, student_model, teacher_model = accelerator.prepare(val_loader, student_model, teacher_model)
         else:
-            train_loader, val_loader, student_model, optimizer, teacher_model = accelerator.prepare(train_loader, val_loader, student_model, optimizer, teacher_model)
-        if compile:
-            student_model = torch.compile(student_model)
-            if teacher_model is not None:
-                teacher_model = torch.compile(teacher_model)
-        if experiment is None:
-            experiment = "."
-        if run_id is None:
-            run_id = "."
-        save_path = Path(save_path) / experiment / run_id
-        check_pointer = CheckPointer(student_model, save_path, save_template, save_every=save_every, disable=rank)
-        log_path = Path(log_path) / experiment / run_id
-        train_logger = Logger(log_path, rank, overwrite, yes)
-        train_logger.append(f"train.jsonl")
-        train_logger.append(sys.stdout, log_every)
-        val_logger = Logger(log_path, rank, overwrite, yes)
-        val_logger.append(f"val.jsonl")
-        val_logger.append(sys.stdout, val_every)
+            if gradient_checkpointing:
+                student_model.config.use_cache = False
+                student_model.gradient_checkpointing_enable()
+            optimizer = torch.optim.AdamW(student_model.parameters(), lr=learning_rate)
+            if max_steps is None:
+                max_steps = len(train_loader) // gradient_accumulation // world_size * num_epochs
+            lr_scheduler = get_scheduler(
+                name=lr_scheduler_type,
+                optimizer=optimizer,
+                num_warmup_steps=0 if warmup_steps is None else int(max_steps * warmup_steps),
+                num_training_steps=max_steps,
+            )
+            if offload_teacher and teacher_model:
+                train_loader, val_loader, student_model, optimizer = accelerator.prepare(train_loader, val_loader, student_model, optimizer)
+                teacher_model.to(inc_device(student_model.device, world_size))
+            else:
+                train_loader, val_loader, student_model, optimizer, teacher_model = accelerator.prepare(train_loader, val_loader, student_model, optimizer, teacher_model)
+            if compile:
+                student_model = torch.compile(student_model)
+                if teacher_model is not None:
+                    teacher_model = torch.compile(teacher_model)
+            if experiment is None:
+                experiment = "."
+            if run_id is None:
+                run_id = "."
+            save_path = Path(save_path) / experiment / run_id
+            check_pointer = CheckPointer(student_model, save_path, save_template, save_every=save_every, disable=rank)
+            log_path = Path(log_path) / experiment / run_id
+            train_logger = Logger(log_path, rank, overwrite, yes)
+            train_logger.append(f"train.jsonl")
+            train_logger.append(sys.stdout, log_every)
+            val_logger = Logger(log_path, rank, overwrite, yes)
+            val_logger.append(f"val.jsonl")
+            val_logger.append(sys.stdout, val_every)
         trainer = Trainer(
             student_model=student_model,
             teacher_model=teacher_model,
@@ -138,18 +152,27 @@ def distill(
             max_steps=max_steps, 
             gradient_accumulation=gradient_accumulation,
             offload_optimizer=offload_optimizer,
+            initial_step=initial_step,
         )
     main_logger = Logger(None, rank, overwrite, yes, sys.stdout)
     main_logger.log(step=0, **args)
     main_logger.log(step=0, **times)
 
     times = {}
-    with timing(times, key="timing/train"):
+    if evaluate_only:
         try:
-            trainer.train(num_epochs=num_epochs)
+            eval_result = trainer.evaluate(num_steps=trainer.val_steps)
         finally:
             if torch.distributed.is_initialized():
                 torch.distributed.destroy_process_group()
-    times["best_val_loss"] = trainer.best_val_loss
-    times["total_steps"] = trainer.step
+        main_logger.log(step=0, **eval_result)
+    else:
+        with timing(times, key="timing/train"):
+            try:
+                trainer.train(num_epochs=num_epochs)
+            finally:
+                if torch.distributed.is_initialized():
+                    torch.distributed.destroy_process_group()
+        times["best_val_loss"] = trainer.best_val_loss
+        times["total_steps"] = trainer.step
     main_logger.log(step=0, **times)

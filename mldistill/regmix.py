@@ -44,9 +44,11 @@ __all__ = ["main"]
 @click.option('--yes', is_flag=True, help="Automatically answer yes to prompts (default: False)")
 @click.option('--attn-implementation', default='eager', type=click.Choice(['eager', 'flash_attention', 'flash_attention_2', 'mem_efficient'], case_sensitive=False), help="Attention implementation to use (default: eager)")
 @click.option('--lr-scheduler-type', default="cosine", type=click.Choice(['linear', 'cosine', 'cosine_with_restarts']))
+@click.option('--evaluate-only', is_flag=True, help="Only evaluate the model without training (default: False)")
+@click.option('--load-checkpoint', type=click.Path(exists=True), help="Path to a checkpoint to load the model from (default: None)")
 def main(**args):
     _main(args, **args)
-def _main(args, mixture_file, mixture, data_dir, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience, max_tokens, max_steps, max_seq_length, gradient_accumulation, batch_size, learning_rate, compile, gradient_checkpointing, offload_optimizer, overwrite, yes, attn_implementation, lr_scheduler_type, warmup_steps):
+def _main(args, mixture_file, mixture, data_dir, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience, max_tokens, max_steps, max_seq_length, gradient_accumulation, batch_size, learning_rate, compile, gradient_checkpointing, offload_optimizer, overwrite, yes, attn_implementation, lr_scheduler_type, warmup_steps, evaluate_only, load_checkpoint):
     times = {}
     with timing(times, key="timing/mixture_file"):
         if mixture is None:
@@ -60,9 +62,9 @@ def _main(args, mixture_file, mixture, data_dir, student, teacher, pretrained, d
         train_data_files = [str(data_dir / f"train_{data_file}.parquet") for data_file in data_files]
         val_data_files = [str(data_dir / f"valid_{data_file}.parquet") for data_file in data_files]
     with timing(times, key="timing/load_datasets"):
-        train_datasets, val_datasets = load_datasets(train_data_files, val_data_files)
+        train_datasets, val_datasets = load_datasets(train_data_files, val_data_files, evaluate_only)
     with timing(times, key="timing/prepare_samplers"):
-        train_sampler = ProportionalSampler(train_datasets, weights, seed=seed)
+        train_sampler = None if evaluate_only else ProportionalSampler(train_datasets, weights, seed=seed)
         val_sampler = ProportionalSampler(val_datasets, weights, seed=seed)
     distill(
         args=args,
@@ -103,6 +105,8 @@ def _main(args, mixture_file, mixture, data_dir, student, teacher, pretrained, d
         attn_implementation=attn_implementation,
         lr_scheduler_type=lr_scheduler_type,
         warmup_steps=warmup_steps,
+        evaluate_only=evaluate_only,
+        load_checkpoint=load_checkpoint,
     )
 
 if __name__ == "__main__":

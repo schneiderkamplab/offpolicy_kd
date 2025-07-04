@@ -35,6 +35,7 @@ class Trainer():
         max_steps: int | None,
         gradient_accumulation: int,
         offload_optimizer: bool,
+        initial_step: int,
     ):
         self.student_model = student_model
         self.teacher_model = teacher_model
@@ -53,7 +54,7 @@ class Trainer():
         self.check_pointer = check_pointer
         self.patience = patience
         self.micro_step = 0
-        self.step = 0
+        self.step = initial_step
         self.tokens = torch.tensor(0)
         self.best_val_loss = float('inf')
         self.patience_counter = 0
