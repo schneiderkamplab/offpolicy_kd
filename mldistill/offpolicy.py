@@ -97,6 +97,11 @@ def distill(
                 teacher_model.to(inc_device(student_model.device, world_size))
             else:
                 val_loader, student_model, teacher_model = accelerator.prepare(val_loader, student_model, teacher_model)
+            optimizer = None
+            lr_scheduler = None
+            check_pointer = None
+            train_logger = None
+            val_logger = None
         else:
             if gradient_checkpointing:
                 student_model.config.use_cache = False
