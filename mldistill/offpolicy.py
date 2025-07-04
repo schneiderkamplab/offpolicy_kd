@@ -172,7 +172,7 @@ def distill(
         finally:
             if torch.distributed.is_initialized():
                 torch.distributed.destroy_process_group()
-        main_logger.log(step=0, **eval_result)
+        main_logger.log(step=initial_step, **eval_result)
     else:
         with timing(times, key="timing/train"):
             try:
