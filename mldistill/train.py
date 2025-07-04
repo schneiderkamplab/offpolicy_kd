@@ -223,10 +223,6 @@ class Trainer():
                     losses = torch.zeros(3, device=teacher_device, dtype=torch.float32)
                     tokens = torch.tensor(0, device=teacher_device, dtype=torch.int64)
 
-                    if self.max_tokens and self.tokens >= self.max_tokens:
-                        break
-                    if self.max_steps and self.step >= self.max_steps:
-                        break
                     if self.step % self.val_every == 0:
                         eval_result = self.evaluate(num_steps=self.val_steps)
                         self.val_logger.log(step=self.step, **eval_result)
@@ -240,6 +236,10 @@ class Trainer():
                             self.patience_counter += 1
                         if self.patience_counter >= self.patience:
                             break
+                    if self.max_tokens and self.tokens >= self.max_tokens:
+                        break
+                    if self.max_steps and self.step >= self.max_steps:
+                        break
                     if self.step % collect_every == 0:
                         collect()
 
