@@ -87,6 +87,12 @@ def distill(
             state_dict = torch.load(load_checkpoint, map_location="cpu")
             state_dict = {k.removeprefix("module."): v for k, v in state_dict.items()}
             student_model.load_state_dict(state_dict)
+    if initial_step:
+        with timing(times, key="timing/fast_forward_val_loader"):
+            skip_vals = initial_step // val_steps # skip initial evaluation, too
+            for _ in range(skip_vals):
+                for _ in zip(range(val_steps), val_loader):
+                    pass
 
     with timing(times, key="timing/prepare_for_training"):
         ce_loss_fn = torch.nn.CrossEntropyLoss()
