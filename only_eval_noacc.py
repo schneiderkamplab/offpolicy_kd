@@ -72,8 +72,12 @@ def _main(args, student, val_data_files, load_checkpoint, attn_implementation, m
     scores = evaluate_perplexity(student_model, val_loader, tokenizer=tokenizer, force_max_length=max_seq_length, limit_num_steps=val_steps)
     scores["model_name"] = student
     scores["checkpoint"] = load_checkpoint
-    print(scores)  # or save into some file...
-    with open("eval_scores.txt", "w") as f:
+    scores["val_data_files"] = val_data_files
+    scores["max_seq_length"] = max_seq_length
+    scores["val_steps"] = val_steps
+    print(scores) 
+    # or save into some file...
+    with open("eval_scores.txt", "a") as f:
         f.write(str(scores))
 
 def evaluate_perplexity(
