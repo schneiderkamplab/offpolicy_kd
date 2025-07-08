@@ -133,7 +133,7 @@ def evaluate_perplexity(
             else:
                 raise ValueError("Batch must contain 'input_ids' and 'attention_mask' or a tokenizer must be provided.")
 
-            logits = model(input_ids=input_ids, attention_mask=attention_mask).logits
+            logits = model(input_ids=input_ids.to(device), attention_mask=attention_mask.to(device)).logits
             # Shift by one for LM loss calc
             logits = logits[:, :-1, :].contiguous()
             labels = input_ids[:, 1:].contiguous().to(device)
