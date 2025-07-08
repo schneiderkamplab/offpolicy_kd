@@ -227,7 +227,8 @@ def collate_fn(
     max_seq_length: int = 4096,   # All of our models should be able to handle this length
 ) -> dict[str, torch.Tensor]:
     input_ids = [torch.tensor(item['input_ids'][:max_seq_length]) for item in batch]
-    input_ids_padded = pad_sequence(input_ids, batch_first=True, padding_value=0)
+    # Make sure we also use right-padding here. (it is the default but better have it fixed)
+    input_ids_padded = pad_sequence(input_ids, batch_first=True, padding_value=0, padding_side="right")
     attention_mask = (input_ids_padded != 0).long()   
     return {
         'input_ids': input_ids_padded,
