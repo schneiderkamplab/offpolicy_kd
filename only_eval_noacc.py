@@ -52,11 +52,12 @@ def _main(args, student, val_data_files, load_checkpoint, attn_implementation, m
     student_config.max_position_embeddings = max_seq_length
     student_model = AutoModelForCausalLM.from_pretrained(student, config=student_config, attn_implementation='eager')
     
-    # TODO: Do we need this checkpoint loading? or does .from_pretrained above already handle it?
-    if load_checkpoint is None:
+    if load_checkpoint is not None:
         state_dict = torch.load(load_checkpoint, map_location="cpu")
         state_dict = {k.removeprefix("module."): v for k, v in state_dict.items()}
         student_model.load_state_dict(state_dict)
+    else:
+        raise ValueError("No checkpoint provided to load the model from.")
 
     tokenizer = AutoTokenizer.from_pretrained(student)
 
@@ -112,7 +113,7 @@ def evaluate_perplexity(
         tokenizer.padding_side = "right"
     else:
         # If pre-tokenized data, use the provided padding token ID
-        print("Using pre-tokenized data. Make sure it is tokenized from the right")
+        print("Using pre-tokenized data. Make sure it is padded from the right")
         assert pad_token_id is not None, "If tokenizer is None, padding_token_id must be provided."
         ignore_index = pad_token_id
 
