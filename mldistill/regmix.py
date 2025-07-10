@@ -46,9 +46,10 @@ __all__ = ["main"]
 @click.option('--lr-scheduler-type', default="cosine", type=click.Choice(['linear', 'cosine', 'cosine_with_restarts']))
 @click.option('--evaluate-only', is_flag=True, help="Only evaluate the model without training (default: False)")
 @click.option('--load-checkpoint', type=click.Path(exists=True), help="Path to a checkpoint to load the model from (default: None)")
+@click.option('--collate-type', default="truncate", type=click.Choice(['truncate', 'pack']), help="Collate function type to use for batching (default: truncate)")
 def main(**args):
     _main(args, **args)
-def _main(args, mixture_file, mixture, data_dir, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience, max_tokens, max_steps, max_seq_length, gradient_accumulation, batch_size, learning_rate, compile, gradient_checkpointing, offload_optimizer, overwrite, yes, attn_implementation, lr_scheduler_type, warmup_steps, evaluate_only, load_checkpoint):
+def _main(args, mixture_file, mixture, data_dir, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience, max_tokens, max_steps, max_seq_length, gradient_accumulation, batch_size, learning_rate, compile, gradient_checkpointing, offload_optimizer, overwrite, yes, attn_implementation, lr_scheduler_type, warmup_steps, evaluate_only, load_checkpoint, collate_type):
     times = {}
     with timing(times, key="timing/mixture_file"):
         if mixture is None:
@@ -107,6 +108,7 @@ def _main(args, mixture_file, mixture, data_dir, student, teacher, pretrained, d
         warmup_steps=warmup_steps,
         evaluate_only=evaluate_only,
         load_checkpoint=load_checkpoint,
+        collate_type=collate_type,
     )
 
 if __name__ == "__main__":

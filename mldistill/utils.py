@@ -192,6 +192,18 @@ class CheckPointer():
 def collate_fn(
     batch: list[dict[str, torch.Tensor]],
     max_seq_length: int = 4096,
+    collate_type: str = "truncate",
+) -> dict[str, torch.Tensor]:
+    if collate_type == "truncate":
+        return collate_truncate_fn(batch, max_seq_length)
+    elif collate_type == "pack":
+        return collate_pack_fn(batch, max_seq_length)
+    else:
+        raise ValueError(f"Unknown collate type: {collate_type}")
+
+def collate_truncate_fn(
+    batch: list[dict[str, torch.Tensor]],
+    max_seq_length: int = 4096,
 ) -> dict[str, torch.Tensor]:
     input_ids = [torch.tensor(item['input_ids'][:max_seq_length]) for item in batch]
     input_ids_padded = pad_sequence(input_ids, batch_first=True, padding_value=0)
@@ -200,6 +212,23 @@ def collate_fn(
         'input_ids': input_ids_padded,
         'attention_mask': attention_mask
     }
+
+def collate_pack_fn(batch: list[dict[str, torch.Tensor]], max_seq_length: int = 4096) -> dict[str, torch.Tensor]:
+    all_ids = torch.cat([item['input_ids'] for item in batch])
+    n_full, remainder_len = divmod(all_ids.size(0), max_seq_length)
+    full_mask = torch.ones(max_seq_length, dtype=torch.long)
+    chunks = [all_ids[i*max_seq_length:(i+1)*max_seq_length] for i in range(n_full)]
+    masks = [full_mask] * n_full
+    if remainder_len:
+        remainder = all_ids[n_full * max_seq_length:]
+        pad_len = max_seq_length - remainder_len
+        chunks.append(torch.cat([remainder, torch.zeros(pad_len, dtype=all_ids.dtype)]))
+        masks.append(torch.cat([torch.ones(remainder_len, dtype=torch.long), torch.zeros(pad_len, dtype=torch.long)]))
+    return {
+        'input_ids': torch.stack(chunks),
+        'attention_mask': torch.stack(masks)
+    }
+
 
 def calculate_perplexity(
     loss: torch.Tensor,

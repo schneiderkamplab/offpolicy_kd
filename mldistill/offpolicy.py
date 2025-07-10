@@ -54,12 +54,13 @@ def distill(
     lr_scheduler_type: str,
     evaluate_only: bool,
     load_checkpoint: str | None,
+    collate_type: str,
 ) -> None:
     with timing(times, key="timing/prepare_dataloaders"):
         accelerator = Accelerator()
         rank = accelerator.process_index
         world_size = accelerator.num_processes
-        _collate_fn = partial(collate_fn, max_seq_length=max_seq_length)
+        _collate_fn = partial(collate_fn, max_seq_length=max_seq_length, collate_type=collate_type)
         train_combined_dataset = None if evaluate_only else ConcatDataset(train_datasets)
         train_loader = None if evaluate_only else DataLoader(train_combined_dataset, sampler=train_sampler, batch_size=batch_size, shuffle=False, collate_fn=_collate_fn, num_workers=0)
         val_combined_dataset = ConcatDataset(val_datasets)
