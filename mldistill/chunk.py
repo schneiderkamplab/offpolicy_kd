@@ -1,6 +1,6 @@
 import torch
 
-class ChunkingTransfornation:
+class ChunkingTransformation:
     flushable = True
 
     def __init__(self, chunk_size):
