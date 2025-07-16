@@ -26,6 +26,7 @@ dependencies = [
     'click',
     'datasets',
     'mltiming',
+    "sensai",
     'torch',
     'transformers',
 ]
@@ -43,3 +44,6 @@ include = [
     'mldistill',
     'README.md',
 ]
+
+[tool.uv.sources]
+sensai = { git = "https://github.com/schneiderkamplab/sensai.git" }
