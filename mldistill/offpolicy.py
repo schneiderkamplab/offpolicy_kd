@@ -87,7 +87,13 @@ def distill(
             )
             client = SensAIClient(transport)
             
-            _collate_fn = wrap_collate_function(_collate_fn, sensai_shm_path, sensai_slot_number)
+            _collate_fn = wrap_collate_function(
+                _collate_fn,
+                client,
+                teacher_logits_attribute="teacher_logits",
+                num_retries=3,
+                retry_delay=0.1
+            )
         train_combined_dataset = None if evaluate_only else ConcatDataset(train_datasets)
         train_loader = None if evaluate_only else DataLoader(train_combined_dataset, sampler=train_sampler, batch_size=batch_size, shuffle=False, collate_fn=_collate_fn, num_workers=0)
         val_combined_dataset = ConcatDataset(val_datasets)
