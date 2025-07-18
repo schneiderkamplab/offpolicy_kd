@@ -10,6 +10,16 @@ from typing import Any, Dict, List
 
 from .train import Trainer
 from .utils import *
+from .utils import sparse_distillation_loss
+
+try:
+    from sensai.client import SensAIClient
+    from sensai.transports import SharedMemoryClient
+    from sensai.utils import wrap_collate_function
+except ImportError:
+    SensAIClient = None
+    SharedMemoryClient = None
+    wrap_collate_function = None
 
 __all__ = ["distill"]
 
@@ -55,18 +65,35 @@ def distill(
     evaluate_only: bool,
     load_checkpoint: str | None,
     collate_type: str,
+    use_external_teacher: bool = False,
+    sensai_shm_path: str | None = None,
+    sensai_slot_number: int | None = None,
 ) -> None:
     with timing(times, key="timing/prepare_dataloaders"):
         accelerator = Accelerator()
         rank = accelerator.process_index
         world_size = accelerator.num_processes
         _collate_fn = partial(collate_fn, max_seq_length=max_seq_length, collate_type=collate_type)
+        
+        # Wrap collate function for external teacher if needed
+        if use_external_teacher:
+            if wrap_collate_function is None or SharedMemoryClient is None or SensAIClient is None:
+                raise ImportError("sensai.client.SensAIClient, sensai.transports.SharedMemoryClient, and sensai.utils.wrap_collate_function are required when using --use-external-teacher")
+            
+            # Initialize the shared memory transport and client
+            transport = SharedMemoryClient(
+                path=sensai_shm_path,
+                slot_id=sensai_slot_number,
+            )
+            client = SensAIClient(transport)
+            
+            _collate_fn = wrap_collate_function(_collate_fn, sensai_shm_path, sensai_slot_number)
         train_combined_dataset = None if evaluate_only else ConcatDataset(train_datasets)
         train_loader = None if evaluate_only else DataLoader(train_combined_dataset, sampler=train_sampler, batch_size=batch_size, shuffle=False, collate_fn=_collate_fn, num_workers=0)
         val_combined_dataset = ConcatDataset(val_datasets)
-        val_loader = DataLoader(val_combined_dataset, sampler=val_sampler, batch_size=batch_size, shuffle=False, collate_fn=collate_fn, num_workers=0)
+        val_loader = DataLoader(val_combined_dataset, sampler=val_sampler, batch_size=batch_size, shuffle=False, collate_fn=_collate_fn, num_workers=0)
     teacher_model = None
-    if distillation:
+    if distillation and not use_external_teacher:
         with timing(times, key="timing/load_teacher_model"):
             teacher_config = AutoConfig.from_pretrained(teacher)
             teacher_config.attn_implementation = attn_implementation
@@ -167,6 +194,7 @@ def distill(
             gradient_accumulation=gradient_accumulation,
             offload_optimizer=offload_optimizer,
             initial_step=initial_step,
+            use_external_teacher=use_external_teacher,
         )
     main_logger = Logger(None, rank, overwrite, yes, sys.stderr if evaluate_only else sys.stdout)
     main_logger.log(step=0, **args)

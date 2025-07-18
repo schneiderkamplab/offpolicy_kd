@@ -89,3 +89,6 @@ accelerate launch --multi_gpu --gpu_ids all --num_processes 2 -m mldistill.stand
 
 ## Development Environment Notes
 - This project uses uv to manage dependencies. Prepend all commands that require the python environments with `uv run`.
+
+## Claude Code Memories
+- Don't try to make an update only add a newline at the end of a file. 

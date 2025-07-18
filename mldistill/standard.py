@@ -46,9 +46,12 @@ __all__ = ["main"]
 @click.option('--evaluate-only', is_flag=True, help="Only evaluate the model without training (default: False)")
 @click.option('--load-checkpoint', type=click.Path(exists=True), help="Path to a checkpoint to load the model from (default: None)")
 @click.option('--collate-type', default="truncate", type=click.Choice(['truncate', 'pack']), help="Collate function type to use for batching (default: truncate)")
+@click.option('--use-external-teacher', is_flag=True, help="Use external teacher for distillation (default: False)")
+@click.option('--sensai-shm-path', default=None, type=click.Path(), help="Path to shared memory location for communication with external teacher (default: None)")
+@click.option('--sensai-slot-number', default=None, type=int, help="Slot number for shared memory communication with external teacher (default: None)")
 def main(**args):
     _main(args, **args)
-def _main(args, train_data_files, val_data_files, experiment, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience, max_tokens, max_steps, warmup_steps, max_seq_length, gradient_accumulation, batch_size, learning_rate, compile, gradient_checkpointing, offload_optimizer, overwrite, yes, attn_implementation, lr_scheduler_type, evaluate_only, load_checkpoint, collate_type):
+def _main(args, train_data_files, val_data_files, experiment, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience, max_tokens, max_steps, warmup_steps, max_seq_length, gradient_accumulation, batch_size, learning_rate, compile, gradient_checkpointing, offload_optimizer, overwrite, yes, attn_implementation, lr_scheduler_type, evaluate_only, load_checkpoint, collate_type, use_external_teacher, sensai_shm_path, sensai_slot_number):
     times = {}
     with timing(times, key="timing/load_datasets"):
         print("Loading datasets...")
@@ -98,6 +101,9 @@ def _main(args, train_data_files, val_data_files, experiment, student, teacher, 
         evaluate_only=evaluate_only,
         load_checkpoint=load_checkpoint,
         collate_type=collate_type,
+        use_external_teacher=use_external_teacher,
+        sensai_shm_path=sensai_shm_path,
+        sensai_slot_number=sensai_slot_number,
     )
 
 if __name__ == "__main__":

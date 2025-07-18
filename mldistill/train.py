@@ -7,6 +7,7 @@ from transformers import SchedulerType
 from tqdm import tqdm
 
 from .utils import *
+from .utils import sparse_distillation_loss
 
 __all__ = ["Trainer"]
 
@@ -36,6 +37,7 @@ class Trainer():
         gradient_accumulation: int,
         offload_optimizer: bool,
         initial_step: int,
+        use_external_teacher: bool = False,
     ):
         self.student_model = student_model
         self.teacher_model = teacher_model
@@ -63,6 +65,7 @@ class Trainer():
         self.max_steps = max_steps
         self.gradient_accumulation = gradient_accumulation
         self.offload_optimizer = offload_optimizer
+        self.use_external_teacher = use_external_teacher
 
     def evaluate(
         self,
@@ -90,37 +93,69 @@ class Trainer():
             for i, batch in zip(range(self.val_steps), self.val_loader):
                 input_ids = batch["input_ids"]
                 attention_mask = batch["attention_mask"]
-                if self.teacher_model:
-                    teacher_logits = self.teacher_model(input_ids=input_ids.to(teacher_device), attention_mask=attention_mask.to(teacher_device)).logits
-                    teacher_logits = teacher_logits[:, :-1, :].contiguous()
-                    teacher_flat = teacher_logits.view(-1, teacher_logits.size(-1))
-                student_logits = self.student_model(input_ids=input_ids, attention_mask=attention_mask).logits.to(teacher_device)
-                del attention_mask
-                student_logits = student_logits[:, :-1, :].contiguous()
-                labels = input_ids[:, 1:].contiguous().to(teacher_device)
-                student_flat = student_logits.view(-1, student_logits.size(-1))
-                labels_flat = labels.view(-1)
-                batch_size = input_ids.size(0)
-
-                ce_loss = self.ce_loss_fn(student_flat, labels_flat)
-                del input_ids, labels
-                if self.teacher_model:
-                    kl_loss = self.kl_loss_fn(F.log_softmax(student_flat, dim=-1), F.softmax(teacher_flat[:, :student_flat.size(dim=1)], dim=-1))
-                    del teacher_logits, teacher_flat
+                
+                if self.use_external_teacher:
+                    # Use sparse distillation loss with external teacher
+                    teacher_indices = batch["teacher_logits_indices"]
+                    teacher_values = batch["teacher_logits_values"]
+                    student_logits = self.student_model(input_ids=input_ids, attention_mask=attention_mask).logits.to(teacher_device)
+                    labels = input_ids[:, 1:].contiguous().to(teacher_device)
+                    
+                    loss, ce_loss, kl_loss = sparse_distillation_loss(
+                        student_logits=student_logits,
+                        teacher_indices=teacher_indices.to(teacher_device),
+                        teacher_values=teacher_values.to(teacher_device),
+                        labels=labels,
+                        alpha=self.alpha
+                    )
+                    del teacher_indices, teacher_values
                 else:
-                    kl_loss = torch.tensor(0)
-                del student_logits
-                loss = self.alpha * kl_loss + ce_loss
+                    # Original logic for regular teacher model
+                    if self.teacher_model:
+                        teacher_logits = self.teacher_model(input_ids=input_ids.to(teacher_device), attention_mask=attention_mask.to(teacher_device)).logits
+                        teacher_logits = teacher_logits[:, :-1, :].contiguous()
+                        teacher_flat = teacher_logits.view(-1, teacher_logits.size(-1))
+                    student_logits = self.student_model(input_ids=input_ids, attention_mask=attention_mask).logits.to(teacher_device)
+                    student_logits = student_logits[:, :-1, :].contiguous()
+                    labels = input_ids[:, 1:].contiguous().to(teacher_device)
+                    student_flat = student_logits.view(-1, student_logits.size(-1))
+                    labels_flat = labels.view(-1)
 
+                    ce_loss = self.ce_loss_fn(student_flat, labels_flat)
+                    if self.teacher_model:
+                        kl_loss = self.kl_loss_fn(F.log_softmax(student_flat, dim=-1), F.softmax(teacher_flat[:, :student_flat.size(dim=1)], dim=-1))
+                        del teacher_logits, teacher_flat
+                    else:
+                        kl_loss = torch.tensor(0)
+                    loss = self.alpha * kl_loss + ce_loss
+                    del student_flat, labels_flat
+                
+                batch_size = batch["input_ids"].size(0)
+                
                 losses_acc[0] += loss.detach()
                 losses_acc[1] += ce_loss.detach()
                 losses_acc[2] += kl_loss.detach()
                 del ce_loss, kl_loss, loss
 
-                preds = torch.argmax(student_flat, dim=-1)
-                acc = calculate_accuracy(preds, labels_flat)
+                # Calculate accuracy (need to handle both external and regular teacher cases)
+                if self.use_external_teacher:
+                    # For external teacher, we need to compute accuracy from student logits
+                    student_logits_for_acc = self.student_model(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"]).logits.to(teacher_device)
+                    student_logits_for_acc = student_logits_for_acc[:, :-1, :].contiguous()
+                    labels_for_acc = batch["input_ids"][:, 1:].contiguous().to(teacher_device)
+                    student_flat_for_acc = student_logits_for_acc.view(-1, student_logits_for_acc.size(-1))
+                    labels_flat_for_acc = labels_for_acc.view(-1)
+                    preds = torch.argmax(student_flat_for_acc, dim=-1)
+                    acc = calculate_accuracy(preds, labels_flat_for_acc)
+                    del student_logits_for_acc, student_flat_for_acc, labels_for_acc, labels_flat_for_acc, preds
+                else:
+                    # For regular teacher, student_flat and labels_flat already exist
+                    preds = torch.argmax(student_flat, dim=-1)
+                    acc = calculate_accuracy(preds, labels_flat)
+                    del student_flat, preds, labels_flat
+                
                 losses_acc[3] += acc.detach()
-                del student_flat, preds, labels_flat
+                del student_logits
                 count += batch_size
 
         self.accelerator.reduce(losses_acc, reduction="mean")
@@ -163,33 +198,53 @@ class Trainer():
 
                 input_ids = batch["input_ids"]
                 attention_mask = batch["attention_mask"]
-
-                if self.teacher_model:
-                    with torch.no_grad():
-                        teacher_logits = self.teacher_model(input_ids=input_ids.to(teacher_device), attention_mask=attention_mask.to(teacher_device)).logits
-                        teacher_logits = teacher_logits[:, :-1, :].contiguous()
-                        teacher_flat = teacher_logits.view(-1, teacher_logits.size(-1))
-
-                student_logits = self.student_model(input_ids=input_ids, attention_mask=attention_mask).logits.to(teacher_device)
-                del attention_mask
-                student_logits = student_logits[:, :-1, :].contiguous()
-                labels = input_ids[:, 1:].contiguous().to(teacher_device)
-
-                student_flat = student_logits.view(-1, student_logits.size(-1))
-                labels_flat = labels.view(-1)
-
                 batch_size = input_ids.size(0)
                 tokens += batch_size * input_ids.size(1)
-                ce_loss = self.ce_loss_fn(student_flat, labels_flat)
-                del input_ids, labels, labels_flat
 
-                if self.teacher_model:
-                    kl_loss = self.kl_loss_fn(F.log_softmax(student_flat, dim=-1), F.softmax(teacher_flat[:, :student_flat.size(dim=1)], dim=-1))
-                    del teacher_logits, teacher_flat
+                if self.use_external_teacher:
+                    # Use sparse distillation loss with external teacher
+                    teacher_indices = batch["teacher_logits_indices"]
+                    teacher_values = batch["teacher_logits_values"]
+                    student_logits = self.student_model(input_ids=input_ids, attention_mask=attention_mask).logits.to(teacher_device)
+                    labels = input_ids[:, 1:].contiguous().to(teacher_device)
+                    
+                    loss, ce_loss, kl_loss = sparse_distillation_loss(
+                        student_logits=student_logits,
+                        teacher_indices=teacher_indices.to(teacher_device),
+                        teacher_values=teacher_values.to(teacher_device),
+                        labels=labels,
+                        alpha=self.alpha
+                    )
+                    del teacher_indices, teacher_values, student_logits, labels
                 else:
-                    kl_loss = torch.tensor(0.0, device=teacher_device)
-                del student_logits, student_flat
-                loss = self.alpha * kl_loss + ce_loss
+                    # Original logic for regular teacher model
+                    if self.teacher_model:
+                        with torch.no_grad():
+                            teacher_logits = self.teacher_model(input_ids=input_ids.to(teacher_device), attention_mask=attention_mask.to(teacher_device)).logits
+                            teacher_logits = teacher_logits[:, :-1, :].contiguous()
+                            teacher_flat = teacher_logits.view(-1, teacher_logits.size(-1))
+
+                    student_logits = self.student_model(input_ids=input_ids, attention_mask=attention_mask).logits.to(teacher_device)
+                    student_logits = student_logits[:, :-1, :].contiguous()
+                    labels = input_ids[:, 1:].contiguous().to(teacher_device)
+
+                    student_flat = student_logits.view(-1, student_logits.size(-1))
+                    labels_flat = labels.view(-1)
+
+                    ce_loss = self.ce_loss_fn(student_flat, labels_flat)
+                    del input_ids, labels, labels_flat
+
+                    if self.teacher_model:
+                        kl_loss = self.kl_loss_fn(F.log_softmax(student_flat, dim=-1), F.softmax(teacher_flat[:, :student_flat.size(dim=1)], dim=-1))
+                        del teacher_logits, teacher_flat
+                    else:
+                        kl_loss = torch.tensor(0.0, device=teacher_device)
+                    del student_logits, student_flat
+                    loss = self.alpha * kl_loss + ce_loss
+                
+                del attention_mask
+                if 'input_ids' in locals():
+                    del input_ids
 
                 self.accelerator.backward(loss)
                 self.micro_step += 1

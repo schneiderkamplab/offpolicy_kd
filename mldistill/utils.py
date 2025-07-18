@@ -6,6 +6,7 @@ import os
 import gc
 from pathlib import Path
 import torch
+from torch.nn import functional as F
 from torch.nn.utils.rnn import pad_sequence
 from typing import IO, List, Tuple, Union
 
@@ -256,3 +257,69 @@ def collect():
         torch.cuda.empty_cache()
     if torch.backends.mps.is_available():
         torch.mps.empty_cache()
+
+
+
+def sparse_distillation_loss(student_logits, teacher_indices, teacher_values, labels, temperature=3.0, alpha=0.5):
+    """
+    Compute knowledge distillation loss using sparse teacher logits.
+    
+    Args:
+        student_logits: Logits from student model [batch_size, seq_len, vocab_size]
+        teacher_indices: Sampled token indices from teacher [batch_size, seq_len-1, num_samples]
+        teacher_values: Sampled logit values from teacher [batch_size, seq_len-1, num_samples]
+        labels: Ground truth token IDs [batch_size, seq_len]
+        temperature: Temperature for softmax
+        alpha: Weighting factor for distillation loss
+    
+    Returns:
+        Combined loss (distillation + task loss)
+    """
+    batch_size, seq_len, vocab_size = student_logits.shape
+    
+    # Task loss (standard cross-entropy)
+    student_logits_flat = student_logits.reshape(-1, vocab_size)
+    labels_flat = labels.reshape(-1)
+    task_loss = F.cross_entropy(student_logits_flat, labels_flat, ignore_index=-100)
+    
+    # For KL divergence, we need to align teacher and student logits
+    # Teacher logits are for positions 0 to seq_len-1, student logits are for positions 0 to seq_len-1 too
+    # We'll use the student logits for positions 0 to seq_len-1 to match teacher
+    if seq_len > 1:
+        student_logits_for_kl = student_logits[:, :-1, :]  # Remove last position to match teacher
+    else:
+        student_logits_for_kl = student_logits
+    
+    # Reshape for efficient computation
+    student_logits_kl_flat = student_logits_for_kl.reshape(-1, vocab_size)  # [batch_size * (seq_len-1), vocab_size]
+    teacher_indices_flat = teacher_indices.reshape(-1, teacher_indices.shape[-1])  # [batch_size * (seq_len-1), num_samples]
+    teacher_values_flat = teacher_values.reshape(-1, teacher_values.shape[-1])  # [batch_size * (seq_len-1), num_samples]
+    
+    # Compute KL divergence efficiently using sparse teacher logits
+    # We'll use the teacher samples to compute a sparse KL divergence
+    student_log_probs = F.log_softmax(student_logits_kl_flat / temperature, dim=-1)
+    
+    # For each position, gather student log probabilities at teacher-sampled positions
+    # teacher_indices_flat: [batch_size * (seq_len-1), num_samples]
+    # student_log_probs: [batch_size * (seq_len-1), vocab_size]
+    
+    # Gather student log probabilities at teacher-sampled indices
+    student_log_probs_sampled = torch.gather(
+        student_log_probs, 
+        dim=1, 
+        index=teacher_indices_flat
+    )  # [batch_size * (seq_len-1), num_samples]
+    
+    # Convert teacher logit values to probabilities
+    teacher_probs_sampled = F.softmax(teacher_values_flat / temperature, dim=-1)
+    
+    # Compute KL divergence using the sampled positions
+    # KL(P || Q) = sum(P * log(P/Q))
+    # For sparse case: approximate by using only the sampled positions
+    kl_loss = torch.sum(teacher_probs_sampled * (torch.log(teacher_probs_sampled + 1e-8) - student_log_probs_sampled))
+    kl_loss = kl_loss / (batch_size * (seq_len - 1))  # Normalize by batch size and sequence length
+    
+    # Combine losses
+    total_loss = alpha * (temperature ** 2) * kl_loss + (1 - alpha) * task_loss
+    
+    return total_loss, task_loss, kl_loss
