@@ -6,17 +6,19 @@
 set -e  # Exit on any error
 
 # Script-level configuration variables
-TEACHER_MODEL="HuggingFaceTB/SmolLM2-135M"
-STUDENT_MODEL="HuggingFaceTB/SmolLM2-135M"
+TEACHER_MODEL="google/gemma-3-4b-it"
+STUDENT_MODEL="google/gemma-3-1b-pt"
+TEACHER_DEVICE="cuda:0"  # Separate GPU for teacher (use "cpu" if no GPU available)
 SHM_PATH="/tmp/sensai_teacher_shm"
 SLOT_NUMBER=0
 NUM_SAMPLES=256  # Number of logits to sample per position
-TRAIN_DATA="train_data.parquet"
-VAL_DATA="val_data.parquet"
+MAX_NBYTES=3355443200  # Memory for 256 logits * 1024 positions * 1024 seq_len * 4 bytes * 4 (buffer)
+TRAIN_DATA="/path/to/your/train_data.parquet"  # PLACEHOLDER: Replace with actual training data path
+VAL_DATA="/path/to/your/val_data.parquet"      # PLACEHOLDER: Replace with actual validation data path
 
 echo "=== SensAI Knowledge Distillation Example ==="
-echo "Teacher: $TEACHER_MODEL"
-echo "Student: $STUDENT_MODEL"
+echo "Teacher: $TEACHER_MODEL (on $TEACHER_DEVICE)"
+echo "Student: $STUDENT_MODEL (will use remaining GPU/CPU)"
 echo "Shared Memory Path: $SHM_PATH"
 echo "Slot Number: $SLOT_NUMBER"
 echo "Number of samples per position: $NUM_SAMPLES"
@@ -32,6 +34,24 @@ echo ""
 
 # Change to project root
 cd "$PROJECT_ROOT"
+
+# Basic validation of shared memory path
+if [ ! -d "$(dirname "$SHM_PATH")" ]; then
+    echo "WARNING: Directory $(dirname "$SHM_PATH") does not exist. Shared memory might not work."
+fi
+
+# Check if data files exist
+if [ ! -f "$TRAIN_DATA" ]; then
+    echo "ERROR: Training data file '$TRAIN_DATA' not found."
+    echo "Please update TRAIN_DATA variable with the correct path."
+    exit 1
+fi
+
+if [ ! -f "$VAL_DATA" ]; then
+    echo "ERROR: Validation data file '$VAL_DATA' not found."
+    echo "Please update VAL_DATA variable with the correct path."
+    exit 1
+fi
 
 # Function to cleanup background processes
 cleanup() {
@@ -53,18 +73,19 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 echo "Starting teacher server..."
-echo "Command: uv run python -m sensai.logits_server --model $TEACHER_MODEL --device cpu --transport shared_memory --num-clients 1 --shm-path $SHM_PATH --num-samples $NUM_SAMPLES --max-nbytes 3000000000 --max-tensors 8 --max-dims 8"
+echo "Command: uv run python -m sensai.logits_server --model $TEACHER_MODEL --device $TEACHER_DEVICE --transport shared_memory --num-clients 1 --shm-path $SHM_PATH --num-samples $NUM_SAMPLES --max-nbytes $MAX_NBYTES --max-tensors 8 --max-dims 8"
 echo ""
 
 # Start the teacher server in the background
+# Teacher runs on separate device for optimal performance
 uv run python -m sensai.logits_server \
     --model $TEACHER_MODEL \
-    --device cpu \
+    --device $TEACHER_DEVICE \
     --transport shared_memory \
     --num-clients 1 \
     --shm-path $SHM_PATH \
     --num-samples $NUM_SAMPLES \
-    --max-nbytes 3000000000 \
+    --max-nbytes $MAX_NBYTES \
     --max-tensors 8 \
     --max-dims 8 \
     --interval 0.1 &
@@ -72,9 +93,13 @@ uv run python -m sensai.logits_server \
 SERVER_PID=$!
 echo "Teacher server started with PID: $SERVER_PID"
 
-# Wait for server to load
-echo "Waiting 10 seconds for teacher server to load..."
-sleep 10
+# Wait for server to load (with progress indicator)
+echo "Waiting for teacher server to load..."
+for i in {1..10}; do
+    echo -n "."
+    sleep 1
+done
+echo " done"
 
 # Check if server is still running
 if ! kill -0 $SERVER_PID 2>/dev/null; then
