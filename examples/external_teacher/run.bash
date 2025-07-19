@@ -6,15 +6,15 @@
 set -e  # Exit on any error
 
 # Script-level configuration variables
-TEACHER_MODEL="google/gemma-3-4b-it"
-STUDENT_MODEL="google/gemma-3-1b-pt"
+TEACHER_MODEL="google/gemma-3-27b-it"
+STUDENT_MODEL="google/gemma-3-4b-pt"
 TEACHER_DEVICE="cuda:0"  # Separate GPU for teacher (use "cpu" if no GPU available)
 SHM_PATH="/tmp/sensai_teacher_shm"
 SLOT_NUMBER=0
 NUM_SAMPLES=256  # Number of logits to sample per position
 MAX_NBYTES=3355443200  # Memory for 256 logits * 1024 positions * 1024 seq_len * 4 bytes * 4 (buffer)
-TRAIN_DATA="/path/to/your/train_data.parquet"  # PLACEHOLDER: Replace with actual training data path
-VAL_DATA="/path/to/your/val_data.parquet"      # PLACEHOLDER: Replace with actual validation data path
+TRAIN_DATA="/path/to/training_data.parquet"  # PLACEHOLDER: Replace with actual training data path
+VAL_DATA="/path/to/validation_data.parquet"  # PLACEHOLDER: Replace with actual validation data path
 
 echo "=== SensAI Knowledge Distillation Example ==="
 echo "Teacher: $TEACHER_MODEL (on $TEACHER_DEVICE)"

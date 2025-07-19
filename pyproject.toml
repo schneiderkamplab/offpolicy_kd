@@ -46,4 +46,4 @@ include = [
 ]
 
 [tool.uv.sources]
-sensai = { git = "https://github.com/schneiderkamplab/sensai.git" }
+sensai = { git = "https://github.com/schneiderkamplab/sensai" }
