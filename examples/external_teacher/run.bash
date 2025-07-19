@@ -6,7 +6,7 @@
 set -e  # Exit on any error
 
 # Script-level configuration variables
-TEACHER_MODEL="google/gemma-3-27b-it"
+TEACHER_MODEL="google/gemma-3-27b-pt"
 STUDENT_MODEL="google/gemma-3-4b-pt"
 TEACHER_DEVICE="cuda:0"  # Separate GPU for teacher (use "cpu" if no GPU available)
 SHM_PATH="/tmp/sensai_teacher_shm"
