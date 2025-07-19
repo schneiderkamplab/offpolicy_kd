@@ -177,3 +177,5 @@ cython_debug/
 models
 logs
 checkpoints
+
+.DS_Store
