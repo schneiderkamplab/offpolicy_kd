@@ -1,4 +1,5 @@
 from accelerate import Accelerator
+from accelerate.utils import DistributedDataParallelKwargs
 from functools import partial
 from mltiming import timing
 from pathlib import Path
@@ -57,7 +58,7 @@ def distill(
     collate_type: str,
 ) -> None:
     with timing(times, key="timing/prepare_dataloaders"):
-        accelerator = Accelerator()
+        accelerator = Accelerator(kwargs_handlers=[DistributedDataParallelKwargs(find_unused_parameters=True)])
         rank = accelerator.process_index
         world_size = accelerator.num_processes
         _collate_fn = partial(collate_fn, max_seq_length=max_seq_length, collate_type=collate_type)
