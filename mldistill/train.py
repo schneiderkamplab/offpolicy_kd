@@ -5,6 +5,7 @@ import torch
 from torch.nn import functional as F
 from transformers import SchedulerType
 from tqdm import tqdm
+from .utils_gkd import unwrap_model_for_generation
 
 from .utils import *
 
@@ -36,6 +37,10 @@ class Trainer():
         gradient_accumulation: int,
         offload_optimizer: bool,
         initial_step: int,
+        on_policy,
+        lmbda,
+        beta,
+        seq_kd,
     ):
         self.student_model = student_model
         self.teacher_model = teacher_model
@@ -63,6 +68,10 @@ class Trainer():
         self.max_steps = max_steps
         self.gradient_accumulation = gradient_accumulation
         self.offload_optimizer = offload_optimizer
+        self.on_policy = on_policy
+        self.lmbda = lmbda
+        self.beta = beta
+        self.seq_kd = seq_kd
 
     def evaluate(
         self,
@@ -164,6 +173,15 @@ class Trainer():
                 input_ids = batch["input_ids"]
                 attention_mask = batch["attention_mask"]
 
+                print("Before on-policy generation:",input_ids.shape, attention_mask.shape, labels.shape)  # Debugging line
+
+                if self.on_policy:
+
+                    input_ids, attention_mask, labels = self.train_onpolicy(input_ids,attention_mask, labels, self.seq_kd, self.lmbda)
+
+                    print("After on-policy generation:", input_ids.shape, attention_mask.shape, labels.shape)  # Debugging line
+
+
                 if self.teacher_model:
                     with torch.no_grad():
                         teacher_logits = self.teacher_model(input_ids=input_ids.to(teacher_device), attention_mask=attention_mask.to(teacher_device)).logits
@@ -262,3 +280,102 @@ class Trainer():
             self.student_model.eval()
             eval_result = self.evaluate(num_steps=self.val_steps)
             self.val_logger.log(step=self.step, **eval_result)
+
+    def train_onpolicy(self, input_ids, attention_mask, labels, lmbda, seq_kd):
+        inputs = {"input_ids": input_ids, "attention_mask": attention_mask, "labels": labels}
+
+        if seq_kd:
+            print("Using seq_kd")
+            with unwrap_model_for_generation(self.teacher_model, self.accelerator) as unwrapped_model:
+                new_input_ids, new_attention_mask, new_labels = self.generate_on_policy_outputs(
+                    unwrapped_model, inputs, self.generation_config, self.processing_class.pad_token_id
+                )
+            input_ids = new_input_ids
+            attention_mask = new_attention_mask
+            labels = new_labels
+
+        if random.random() <= lmbda:
+            print("Using lmbda for teacher model")
+            with unwrap_model_for_generation(self.student_model, self.accelerator) as unwrapped_model:
+                new_input_ids, new_attention_mask, new_labels = self.generate_on_policy_outputs(
+                    unwrapped_model, inputs, self.generation_config, self.processing_class.pad_token_id
+                )
+            input_ids = new_input_ids
+            attention_mask = new_attention_mask
+            labels = new_labels
+
+        return input_ids, attention_mask, labels
+
+    @staticmethod
+    def generalized_jsd_loss(self,
+            student_logits, teacher_logits, labels=None, beta=0.5, temperature=1.0, reduction="batchmean"
+    ):
+
+        # Apply temperature scaling
+        student_logits = student_logits / temperature
+        teacher_logits = teacher_logits / temperature
+
+        # Compute log probabilities for student and probabilities for teacher
+        student_log_probs = F.log_softmax(student_logits, dim=-1)
+        teacher_log_probs = F.log_softmax(teacher_logits, dim=-1)
+
+        if beta == 0:
+            jsd = F.kl_div(student_log_probs, teacher_log_probs, reduction="none", log_target=True)
+        elif beta == 1:
+            jsd = F.kl_div(teacher_log_probs, student_log_probs, reduction="none", log_target=True)
+        else:
+            # Compute the log of the mixture distribution
+            # log(a + b) = log(exp(log(a)) + exp(log(b))) -> for mixture
+            beta = torch.tensor(beta, dtype=student_log_probs.dtype)
+            mixture_log_probs = torch.logsumexp(
+                torch.stack([student_log_probs + torch.log(1 - beta), teacher_log_probs + torch.log(beta)]),
+                dim=0,
+            )
+
+            # Compute KL divergences using F.kl_div
+            # PyTorch differs from the standard mathematical definition, so the order of the probability distributions is swapped compared to that defined in the paper.
+            kl_teacher = F.kl_div(mixture_log_probs, teacher_log_probs, reduction="none", log_target=True)
+            kl_student = F.kl_div(mixture_log_probs, student_log_probs, reduction="none", log_target=True)
+
+            # Compute the Generalized Jensen-Shannon Divergence
+            jsd = beta * kl_teacher + (1 - beta) * kl_student
+
+        # Masking
+        if labels is not None:
+            mask = labels != -100
+            jsd = jsd[mask]
+
+        # Apply reduction
+        if reduction == "batchmean":
+            return jsd.sum() / mask.sum() if labels is not None else jsd.sum() / (jsd.size(0) * jsd.size(1))
+        elif reduction == "sum":
+            return jsd.sum()
+        elif reduction == "mean":
+            return jsd.mean()
+        else:
+            return jsd
+
+    @staticmethod
+    def generate_on_policy_outputs(model, inputs, generation_config, pad_token_id=None):
+        # Generate output with respect to the prompt only
+
+        generated_outputs = model.generate(
+            input_ids=inputs["input_ids"],
+            attention_mask=inputs.get("attention_mask", None),
+            generation_config=generation_config,
+            return_dict_in_generate=True,
+        )
+
+        # Get the generated token IDs
+        generated_tokens = generated_outputs.sequences
+        # Calculate new attention mask
+        new_attention_mask = torch.ones_like(generated_tokens)
+        new_labels = generated_tokens.clone()
+
+        # If there's pad_token_id, set attention mask to 0 for padding tokens
+        if pad_token_id is not None:
+            new_labels[new_labels == pad_token_id] = -100
+            new_attention_mask[generated_tokens == pad_token_id] = 0
+
+        return generated_tokens, new_attention_mask, new_labels
+

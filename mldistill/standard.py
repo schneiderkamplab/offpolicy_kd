@@ -46,9 +46,15 @@ __all__ = ["main"]
 @click.option('--evaluate-only', is_flag=True, help="Only evaluate the model without training (default: False)")
 @click.option('--load-checkpoint', type=click.Path(exists=True), help="Path to a checkpoint to load the model from (default: None)")
 @click.option('--collate-type', default="truncate", type=click.Choice(['truncate', 'pack']), help="Collate function type to use for batching (default: truncate)")
+@click.option('--on_policy', is_flag=True, help="Do *on policy* distillation, use only with distillation flag (default: False)")
+@click.option('--lmbda', default=0.5, type=float, help="controls the student data fraction, i.e., the proportion of on-policy student-generated outputs. (default: 0.5)")
+@click.option('--seq_kd', is_flag=True, help="controls whether to perform Sequence-Level KD (default: False)")
+@click.option('--beta', default=None, type=float, help="To compute loss with JSD. Controls the interpolation in the generalized Jensen-Shannon Divergence. (default: None)")
+
+
 def main(**args):
     _main(args, **args)
-def _main(args, train_data_files, val_data_files, experiment, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience, max_tokens, max_steps, warmup_steps, max_seq_length, gradient_accumulation, batch_size, learning_rate, compile, gradient_checkpointing, offload_optimizer, overwrite, yes, attn_implementation, lr_scheduler_type, evaluate_only, load_checkpoint, collate_type):
+def _main(args, train_data_files, val_data_files, experiment, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience, max_tokens, max_steps, warmup_steps, max_seq_length, gradient_accumulation, batch_size, learning_rate, compile, gradient_checkpointing, offload_optimizer, overwrite, yes, attn_implementation, lr_scheduler_type, evaluate_only, load_checkpoint, collate_type, on_policy, lmbda, seq_kd, beta):
     times = {}
     with timing(times, key="timing/load_datasets"):
         print("Loading datasets...")
@@ -98,6 +104,10 @@ def _main(args, train_data_files, val_data_files, experiment, student, teacher, 
         evaluate_only=evaluate_only,
         load_checkpoint=load_checkpoint,
         collate_type=collate_type,
+        on_policy=on_policy,
+        lmbda=lmbda,
+        beta=beta,
+        seq_kd=seq_kd,
     )
 
 if __name__ == "__main__":

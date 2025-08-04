@@ -56,6 +56,10 @@ def distill(
     evaluate_only: bool,
     load_checkpoint: str | None,
     collate_type: str,
+    on_policy: bool, 
+    lmbda: float,
+    beta: float | None,
+    seq_kd: bool
 ) -> None:
     with timing(times, key="timing/prepare_dataloaders"):
         accelerator = Accelerator(kwargs_handlers=[DistributedDataParallelKwargs(find_unused_parameters=True)])
@@ -168,6 +172,10 @@ def distill(
             gradient_accumulation=gradient_accumulation,
             offload_optimizer=offload_optimizer,
             initial_step=initial_step,
+            on_policy=on_policy,
+            lmbda=lmbda,
+            beta=beta,
+            seq_kd=seq_kd,
         )
     main_logger = Logger(None, rank, overwrite, yes, sys.stderr if evaluate_only else sys.stdout)
     main_logger.log(step=0, **args)
