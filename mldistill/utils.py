@@ -68,6 +68,7 @@ def load_datasets(
     return train_datasets, val_datasets
 
 def find_parquet_files(paths: Union[str, List[str]]) -> List[str]:
+
     if isinstance(paths, str):
         paths = [paths]
 

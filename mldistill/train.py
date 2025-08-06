@@ -6,8 +6,11 @@ from torch.nn import functional as F
 from transformers import SchedulerType
 from tqdm import tqdm
 from .utils_gkd import unwrap_model_for_generation
-
+import numpy as np
 from .utils import *
+from transformers import GenerationConfig
+import random
+
 
 __all__ = ["Trainer"]
 
@@ -38,9 +41,9 @@ class Trainer():
         offload_optimizer: bool,
         initial_step: int,
         on_policy,
-        lmbda,
-        beta,
-        seq_kd,
+        distribution=(1, 0, 0, 0),
+        generation_config: GenerationConfig | None = None,
+        
     ):
         self.student_model = student_model
         self.teacher_model = teacher_model
@@ -69,9 +72,13 @@ class Trainer():
         self.gradient_accumulation = gradient_accumulation
         self.offload_optimizer = offload_optimizer
         self.on_policy = on_policy
-        self.lmbda = lmbda
-        self.beta = beta
-        self.seq_kd = seq_kd
+        self.distribution = distribution
+        if generation_config is None and hasattr(self.teacher_model, 'generation_config'):
+            generation_config = self.teacher_model.generation_config
+        elif generation_config is None:
+            generation_config = GenerationConfig()
+
+        self.generation_config = generation_config
 
     def evaluate(
         self,
@@ -173,13 +180,11 @@ class Trainer():
                 input_ids = batch["input_ids"]
                 attention_mask = batch["attention_mask"]
 
-                print("Before on-policy generation:",input_ids.shape, attention_mask.shape, labels.shape)  # Debugging line
 
                 if self.on_policy:
+                    
+                    input_ids, attention_mask = self.train_onpolicy(input_ids,attention_mask, epoch, np.array(self.distribution))
 
-                    input_ids, attention_mask, labels = self.train_onpolicy(input_ids,attention_mask, labels, self.seq_kd, self.lmbda)
-
-                    print("After on-policy generation:", input_ids.shape, attention_mask.shape, labels.shape)  # Debugging line
 
 
                 if self.teacher_model:
@@ -281,28 +286,130 @@ class Trainer():
             eval_result = self.evaluate(num_steps=self.val_steps)
             self.val_logger.log(step=self.step, **eval_result)
 
-    def train_onpolicy(self, input_ids, attention_mask, labels, lmbda, seq_kd):
-        inputs = {"input_ids": input_ids, "attention_mask": attention_mask, "labels": labels}
 
-        if seq_kd:
-            print("Using seq_kd")
+
+
+
+    def generate_on_policy_outputs(self,model, inputs, generation_config, pad_token_id=None):
+        generated_outputs = model.generate(
+            input_ids=inputs["input_ids"],
+            attention_mask=inputs.get("attention_mask", None),
+            generation_config=generation_config,
+            return_dict_in_generate=True,
+        )
+
+        generated_tokens = generated_outputs.sequences
+        new_attention_mask = torch.ones_like(generated_tokens)
+        new_labels = generated_tokens.clone()
+
+        if pad_token_id is not None:
+            new_labels[new_labels == pad_token_id] = -100
+            new_attention_mask[generated_tokens == pad_token_id] = 0
+
+        return generated_tokens, new_attention_mask, new_labels
+
+
+    def train_onpolicy( self,
+        input_ids,
+        attention_mask,
+        epoch,
+        distribution=(1, 0, 0, 0) , 
+        pad_token_id=None
+    ):
+
+
+        if epoch <= np.shape(distribution)[0] and np.shape(distribution)[0] > 1:
+            distribution = distribution[epoch]
+        print("Using distribution:", distribution)
+
+        labels = input_ids[:, 1:].contiguous()
+        inputs = {"input_ids": input_ids, "attention_mask": attention_mask, "labels": labels}
+        print("original",inputs["input_ids"])
+        
+        rndm = random.randint(0, 100)/100
+        print("Random number generated:", rndm)
+
+        if rndm <= distribution[0] :
+            new_input_ids = input_ids
+            new_attention_mask = attention_mask
+            new_labels = labels
+
+        elif rndm <= distribution[0]+distribution[1]:
+            print("enter 1")
+            # Mode 1: Teacher generation
             with unwrap_model_for_generation(self.teacher_model, self.accelerator) as unwrapped_model:
                 new_input_ids, new_attention_mask, new_labels = self.generate_on_policy_outputs(
-                    unwrapped_model, inputs, self.generation_config, self.processing_class.pad_token_id
+                    unwrapped_model, inputs, self.generation_config, pad_token_id
                 )
-            input_ids = new_input_ids
-            attention_mask = new_attention_mask
-            labels = new_labels
+            
 
-        if random.random() <= lmbda:
-            print("Using lmbda for teacher model")
+        elif rndm <= distribution[0]+distribution[1]+distribution[2]:
             with unwrap_model_for_generation(self.student_model, self.accelerator) as unwrapped_model:
                 new_input_ids, new_attention_mask, new_labels = self.generate_on_policy_outputs(
-                    unwrapped_model, inputs, self.generation_config, self.processing_class.pad_token_id
+                    unwrapped_model, inputs, self.generation_config, pad_token_id
                 )
-            input_ids = new_input_ids
-            attention_mask = new_attention_mask
-            labels = new_labels
+            
+
+        elif rndm <= distribution[0]+distribution[1]+distribution[2]+distribution[3]:
+            
+            with unwrap_model_for_generation(self.teacher_model, self.accelerator) as unwrapped_model:
+                new_input_ids, new_attention_mask, new_labels = self.generate_on_policy_outputs(
+                    unwrapped_model, inputs, self.generation_config, pad_token_id
+                )
+
+            inputs = {"input_ids": new_input_ids, "attention_mask": new_attention_mask, "labels": new_labels}
+
+            with unwrap_model_for_generation(self.student_model, self.accelerator) as unwrapped_model:
+                new_input_ids, new_attention_mask, new_labels = self.generate_on_policy_outputs(
+                    unwrapped_model, inputs, self.generation_config, pad_token_id
+                )
+
+        input_ids = new_input_ids
+        attention_mask = new_attention_mask
+        labels = new_labels
+
+
+        return  input_ids, attention_mask
+
+    def _pad_to_max_length(self,input_id_list, attention_mask_list, pad_token_id=None):
+        max_len = max(t.size(1) for t in input_id_list)
+
+        padded_inputs = []
+        padded_masks = []
+
+        for input_ids, mask in zip(input_id_list, attention_mask_list):
+            pad_len = max_len - input_ids.size(1)
+            if pad_len > 0:
+                pad_ids = torch.full((input_ids.size(0), pad_len), pad_token_id, dtype=torch.long, device=input_ids.device)
+                pad_mask = torch.zeros((mask.size(0), pad_len), dtype=torch.long, device=mask.device)
+                input_ids = torch.cat([input_ids, pad_ids], dim=1)
+                mask = torch.cat([mask, pad_mask], dim=1)
+
+            padded_inputs.append(input_ids)
+            padded_masks.append(mask)
+
+        return torch.cat(padded_inputs, dim=0), torch.cat(padded_masks, dim=0)
+
+
+        # if seq_kd:
+        #     print("Using seq_kd")
+        #     with unwrap_model_for_generation(self.teacher_model, self.accelerator) as unwrapped_model:
+        #         new_input_ids, new_attention_mask, new_labels = self.generate_on_policy_outputs(
+        #             unwrapped_model, inputs, self.generation_config, self.processing_class.pad_token_id
+        #         )
+        #     input_ids = new_input_ids
+        #     attention_mask = new_attention_mask
+        #     labels = new_labels
+
+        # if random.random() <= lmbda:
+        #     print("Using lmbda for teacher model")
+        #     with unwrap_model_for_generation(self.student_model, self.accelerator) as unwrapped_model:
+        #         new_input_ids, new_attention_mask, new_labels = self.generate_on_policy_outputs(
+        #             unwrapped_model, inputs, self.generation_config, self.processing_class.pad_token_id
+        #         )
+        #     input_ids = new_input_ids
+        #     attention_mask = new_attention_mask
+        #     labels = new_labels
 
         return input_ids, attention_mask, labels
 
@@ -355,27 +462,27 @@ class Trainer():
         else:
             return jsd
 
-    @staticmethod
-    def generate_on_policy_outputs(model, inputs, generation_config, pad_token_id=None):
-        # Generate output with respect to the prompt only
+    # @staticmethod
+    # def generate_on_policy_outputs(model, inputs, generation_config, pad_token_id=None):
+    #     # Generate output with respect to the prompt only
 
-        generated_outputs = model.generate(
-            input_ids=inputs["input_ids"],
-            attention_mask=inputs.get("attention_mask", None),
-            generation_config=generation_config,
-            return_dict_in_generate=True,
-        )
+    #     generated_outputs = model.generate(
+    #         input_ids=inputs["input_ids"],
+    #         attention_mask=inputs.get("attention_mask", None),
+    #         generation_config=generation_config,
+    #         return_dict_in_generate=True,
+    #     )
 
-        # Get the generated token IDs
-        generated_tokens = generated_outputs.sequences
-        # Calculate new attention mask
-        new_attention_mask = torch.ones_like(generated_tokens)
-        new_labels = generated_tokens.clone()
+    #     # Get the generated token IDs
+    #     generated_tokens = generated_outputs.sequences
+    #     # Calculate new attention mask
+    #     new_attention_mask = torch.ones_like(generated_tokens)
+    #     new_labels = generated_tokens.clone()
 
-        # If there's pad_token_id, set attention mask to 0 for padding tokens
-        if pad_token_id is not None:
-            new_labels[new_labels == pad_token_id] = -100
-            new_attention_mask[generated_tokens == pad_token_id] = 0
+    #     # If there's pad_token_id, set attention mask to 0 for padding tokens
+    #     if pad_token_id is not None:
+    #         new_labels[new_labels == pad_token_id] = -100
+    #         new_attention_mask[generated_tokens == pad_token_id] = 0
 
-        return generated_tokens, new_attention_mask, new_labels
+    #     return generated_tokens, new_attention_mask, new_labels
 

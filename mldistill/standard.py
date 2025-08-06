@@ -4,8 +4,33 @@ from mltiming import timing
 from .offpolicy import distill
 from .sampler import RandomSampler
 from .utils import load_datasets
+import numpy as np
+import json
 
 __all__ = ["main"]
+
+def validate_distribution(ctx, param, value):
+    try:
+        # Convert JSON string to Python list of lists
+        dist = json.loads(value)
+        # Convert to NumPy array
+        dist_array = np.array(dist, dtype=np.float64)
+    except Exception as e:
+        raise click.BadParameter(f"Invalid input. Must be a JSON list of lists of floats. Error: {e}")
+
+    # Check shape
+    if dist_array.ndim != 2 or dist_array.shape[1] != 4:
+        raise click.BadParameter(f"Each row must have exactly 4 elements. Got shape: {dist_array.shape}")
+    
+
+    # Check row-wise sum
+    row_sums = dist_array.sum(axis=1)
+    if not np.allclose(row_sums, 1.0, atol=1e-6):
+        bad_rows = np.where(~np.isclose(row_sums, 1.0, atol=1e-6))[0]
+        raise click.BadParameter(f"Rows {bad_rows.tolist()} must sum to 1.0. Row sums: {row_sums.tolist()}")
+
+    return dist_array.tolist()  # Now validated and ready as a NumPy array
+
 
 @click.command()
 @click.argument('train_data_files', nargs=-1, type=click.Path(exists=True))
@@ -47,14 +72,29 @@ __all__ = ["main"]
 @click.option('--load-checkpoint', type=click.Path(exists=True), help="Path to a checkpoint to load the model from (default: None)")
 @click.option('--collate-type', default="truncate", type=click.Choice(['truncate', 'pack']), help="Collate function type to use for batching (default: truncate)")
 @click.option('--on_policy', is_flag=True, help="Do *on policy* distillation, use only with distillation flag (default: False)")
-@click.option('--lmbda', default=0.5, type=float, help="controls the student data fraction, i.e., the proportion of on-policy student-generated outputs. (default: 0.5)")
-@click.option('--seq_kd', is_flag=True, help="controls whether to perform Sequence-Level KD (default: False)")
-@click.option('--beta', default=None, type=float, help="To compute loss with JSD. Controls the interpolation in the generalized Jensen-Shannon Divergence. (default: None)")
-
+@click.option('--distribution',callback=validate_distribution, help='JSON string for list of lists (e.g., [[0.25,0.25,0.25,0.25],[0.5,0.5,0,0]])'
+)
 
 def main(**args):
     _main(args, **args)
-def _main(args, train_data_files, val_data_files, experiment, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience, max_tokens, max_steps, warmup_steps, max_seq_length, gradient_accumulation, batch_size, learning_rate, compile, gradient_checkpointing, offload_optimizer, overwrite, yes, attn_implementation, lr_scheduler_type, evaluate_only, load_checkpoint, collate_type, on_policy, lmbda, seq_kd, beta):
+def _main(args, train_data_files, val_data_files, experiment, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience, max_tokens, max_steps, warmup_steps, max_seq_length, gradient_accumulation, batch_size, learning_rate, compile, gradient_checkpointing, offload_optimizer, overwrite, yes, attn_implementation, lr_scheduler_type, evaluate_only, load_checkpoint, collate_type, on_policy, distribution):
+    
+    distribution = np.array(distribution)
+
+    # Validate that distribution rows match num_epochs or is a single row
+    if distribution.shape[0] not in (1, num_epochs):
+        raise click.ClickException(
+            f"Number of rows in --distribution ({distribution.shape[0]}) must be 1 or equal to --num-epochs ({num_epochs})."
+        )
+    
+    if not isinstance(distribution, tuple) or len(distribution) != 4:
+        raise click.BadParameter("Must be a tuple of four floats.")
+    
+    
+    total = sum(distribution)
+    if abs(total - 1.0) > 1e-6:  # allowing for floating point tolerance
+        raise click.BadParameter("The distribution values must sum to 1.0.")
+    
     times = {}
     with timing(times, key="timing/load_datasets"):
         print("Loading datasets...")
@@ -105,9 +145,7 @@ def _main(args, train_data_files, val_data_files, experiment, student, teacher, 
         load_checkpoint=load_checkpoint,
         collate_type=collate_type,
         on_policy=on_policy,
-        lmbda=lmbda,
-        beta=beta,
-        seq_kd=seq_kd,
+        distribution=distribution,
     )
 
 if __name__ == "__main__":
