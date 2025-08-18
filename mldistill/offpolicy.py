@@ -58,12 +58,15 @@ def distill(
     collate_type: str,
     on_policy: bool, 
     distribution: tuple[float, float, float, float],
+    max_new_tokens: int
 ) -> None:
     with timing(times, key="timing/prepare_dataloaders"):
         accelerator = Accelerator(kwargs_handlers=[DistributedDataParallelKwargs(find_unused_parameters=True)])
         rank = accelerator.process_index
         world_size = accelerator.num_processes
         _collate_fn = partial(collate_fn, max_seq_length=max_seq_length, collate_type=collate_type)
+        if on_policy:
+            _collate_fn = partial(collate_fn, max_seq_length=max_seq_length-max_new_tokens, collate_type=collate_type)
         train_combined_dataset = None if evaluate_only else ConcatDataset(train_datasets)
         train_loader = None if evaluate_only else DataLoader(train_combined_dataset, sampler=train_sampler, batch_size=batch_size, shuffle=False, collate_fn=_collate_fn, num_workers=0)
         val_combined_dataset = ConcatDataset(val_datasets)
@@ -172,6 +175,7 @@ def distill(
             initial_step=initial_step,
             on_policy=on_policy,
             distribution=distribution,
+            max_new_tokens=max_new_tokens,
         )
     main_logger = Logger(None, rank, overwrite, yes, sys.stderr if evaluate_only else sys.stdout)
     main_logger.log(step=0, **args)

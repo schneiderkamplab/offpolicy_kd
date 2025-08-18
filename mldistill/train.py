@@ -10,7 +10,7 @@ import numpy as np
 from .utils import *
 from transformers import GenerationConfig
 import random
-
+from .gkd_config import GKDConfig
 
 __all__ = ["Trainer"]
 
@@ -42,6 +42,7 @@ class Trainer():
         initial_step: int,
         on_policy,
         distribution=(1, 0, 0, 0),
+        max_new_tokens: int = 128,
         generation_config: GenerationConfig | None = None,
         
     ):
@@ -73,12 +74,13 @@ class Trainer():
         self.offload_optimizer = offload_optimizer
         self.on_policy = on_policy
         self.distribution = distribution
-        if generation_config is None and hasattr(self.teacher_model, 'generation_config'):
-            generation_config = self.teacher_model.generation_config
-        elif generation_config is None:
-            generation_config = GenerationConfig()
+        self.max_new_tokens = max_new_tokens
+        if generation_config is None:
+            self.generation_config = GenerationConfig(
+            max_new_tokens= self.max_new_tokens,
+          #  pad_token_id=self.processing_class.pad_token_id,
+        )
 
-        self.generation_config = generation_config
 
     def evaluate(
         self,
@@ -297,8 +299,12 @@ class Trainer():
             generation_config=generation_config,
             return_dict_in_generate=True,
         )
+        print("size input_ids:", inputs["input_ids"].shape)
+
+
 
         generated_tokens = generated_outputs.sequences
+        print("size generated_outputs:", generated_outputs.sequences.shape)
         new_attention_mask = torch.ones_like(generated_tokens)
         new_labels = generated_tokens.clone()
 
@@ -320,16 +326,20 @@ class Trainer():
 
         if epoch <= np.shape(distribution)[0] and np.shape(distribution)[0] > 1:
             distribution = distribution[epoch]
+        else:
+            distribution = distribution[0]
         print("Using distribution:", distribution)
+        print("distribution 0 :", distribution[0])
 
         labels = input_ids[:, 1:].contiguous()
         inputs = {"input_ids": input_ids, "attention_mask": attention_mask, "labels": labels}
-        print("original",inputs["input_ids"])
+
         
         rndm = random.randint(0, 100)/100
         print("Random number generated:", rndm)
 
         if rndm <= distribution[0] :
+            print("enter 0")
             new_input_ids = input_ids
             new_attention_mask = attention_mask
             new_labels = labels
@@ -344,6 +354,7 @@ class Trainer():
             
 
         elif rndm <= distribution[0]+distribution[1]+distribution[2]:
+            print("enter 2")
             with unwrap_model_for_generation(self.student_model, self.accelerator) as unwrapped_model:
                 new_input_ids, new_attention_mask, new_labels = self.generate_on_policy_outputs(
                     unwrapped_model, inputs, self.generation_config, pad_token_id
@@ -351,6 +362,7 @@ class Trainer():
             
 
         elif rndm <= distribution[0]+distribution[1]+distribution[2]+distribution[3]:
+            print("enter 3")
             
             with unwrap_model_for_generation(self.teacher_model, self.accelerator) as unwrapped_model:
                 new_input_ids, new_attention_mask, new_labels = self.generate_on_policy_outputs(

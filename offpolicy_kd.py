@@ -15,12 +15,10 @@ teacher_model = AutoModelForCausalLM.from_pretrained(MODEL_KEY).to(device)
 # Init a fresh model
 student_config = Gemma3Config.from_pretrained(MODEL_KEY)
 student_model = Gemma3ForCausalLM(config=student_config).to(device)
-print(student_model)
 
 
 # Load the dataset
 dataset = load_dataset("DDSC/europarl", split="train")
-print(dataset)
 
 
 loader = torch.utils.data.DataLoader(dataset, batch_size=4, shuffle=True)

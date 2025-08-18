@@ -10,18 +10,6 @@ import sys
 import numpy as np
 __all__ = ["main"]
 
-class FilterStdout:
-    def write(self, msg):
-        if "model type" in msg:
-            import traceback
-            print("\n🔍 Found suspicious print:")  # Optional for clarity
-            traceback.print_stack()  # Prints the call stack
-        sys.__stdout__.write(msg)  # Still show the message as usual
-
-    def flush(self):
-        sys.__stdout__.flush()
-
-sys.stdout = FilterStdout()
 
 def validate_distribution(ctx, param, value):
     try:
@@ -88,17 +76,13 @@ def validate_distribution(ctx, param, value):
 @click.option('--on_policy', is_flag=True, help="Do *on policy* distillation, use only with distillation flag (default: False)")
 @click.option('--distribution',callback=validate_distribution, help='JSON string for list of lists (e.g., [[0.25,0.25,0.25,0.25],[0.5,0.5,0,0]])'
 )
-
-
-
-
-
+@click.option('--max-new-tokens', default=128, type=int, help="Maximum number of new tokens to generate on on-policy distillation (default: 128)")
 
 
 def main(**args):
     _main(args, **args)
-def _main(args, mixture_file, mixture, data_dir, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience, max_tokens, max_steps, max_seq_length, gradient_accumulation, batch_size, learning_rate, compile, gradient_checkpointing, offload_optimizer, overwrite, yes, attn_implementation, lr_scheduler_type, warmup_steps, evaluate_only, load_checkpoint, collate_type, on_policy, distribution):
-    
+def _main(args, mixture_file, mixture, data_dir, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience, max_tokens, max_steps, max_seq_length, gradient_accumulation, batch_size, learning_rate, compile, gradient_checkpointing, offload_optimizer, overwrite, yes, attn_implementation, lr_scheduler_type, warmup_steps, evaluate_only, load_checkpoint, collate_type, on_policy, distribution, max_new_tokens):
+
     distribution = np.array(distribution)
 
     # Validate that distribution rows match num_epochs or is a single row
@@ -168,7 +152,8 @@ def _main(args, mixture_file, mixture, data_dir, student, teacher, pretrained, d
         load_checkpoint=load_checkpoint,
         collate_type=collate_type,
         on_policy=on_policy,
-        distribution=distribution
+        distribution=distribution,
+        max_new_tokens=max_new_tokens
     )
 
 if __name__ == "__main__":
