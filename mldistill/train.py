@@ -23,12 +23,14 @@ class Trainer():
         train_loader: torch.utils.data.DataLoader,
         val_loader: torch.utils.data.DataLoader,
         train_logger: Logger,
+        distillation: bool,
         val_logger: Logger,
         optimizer: torch.optim.Optimizer,
         lr_scheduler: SchedulerType,
         ce_loss_fn: torch.nn.Module,
         kl_loss_fn: torch.nn.Module,
         alpha: float,
+        beta: float,
         collect_every: int | None,
         val_every: int,
         val_steps: int,
@@ -40,7 +42,6 @@ class Trainer():
         gradient_accumulation: int,
         offload_optimizer: bool,
         initial_step: int,
-        on_policy,
         distribution=(1, 0, 0, 0),
         max_new_tokens: int = 128,
         generation_config: GenerationConfig | None = None,
@@ -57,6 +58,7 @@ class Trainer():
         self.ce_loss_fn = ce_loss_fn
         self.kl_loss_fn = kl_loss_fn
         self.alpha = alpha
+        self.beta = beta
         self.collect_every = collect_every
         self.val_every = val_every
         self.val_steps = val_steps
@@ -71,8 +73,8 @@ class Trainer():
         self.max_tokens = max_tokens
         self.max_steps = max_steps
         self.gradient_accumulation = gradient_accumulation
+        self.distillation = distillation
         self.offload_optimizer = offload_optimizer
-        self.on_policy = on_policy
         self.distribution = distribution
         self.max_new_tokens = max_new_tokens
         if generation_config is None:
@@ -175,6 +177,9 @@ class Trainer():
         losses = torch.zeros(3, device=teacher_device, dtype=torch.float32)
         tokens = torch.tensor(0, device=teacher_device, dtype=torch.int64)
         progress_bar = tqdm(self.train_loader, unit="batches", total=self.max_steps)
+
+        torch.autograd.set_detect_anomaly(True)
+
         for epoch in range(num_epochs):
             progress_bar.set_description(f"Epoch {epoch + 1}/{num_epochs}")
             for batch in self.train_loader:
@@ -182,46 +187,64 @@ class Trainer():
                 input_ids = batch["input_ids"]
                 attention_mask = batch["attention_mask"]
 
+                input_ids = input_ids.to(teacher_device)
+                attention_mask = attention_mask.to(teacher_device)
 
-                if self.on_policy:
-                    
-                    input_ids, attention_mask = self.train_onpolicy(input_ids,attention_mask, epoch, np.array(self.distribution))
+                if self.beta > 0.0:
+                    print("Using causal language modeling loss")
+                    student_logits = self.student_model(input_ids=input_ids, attention_mask=attention_mask).logits.to(teacher_device)
+                    student_logits = student_logits[:, :-1, :].contiguous()
+                    labels = input_ids[:, 1:].contiguous().to(teacher_device)
+                    student_flat = student_logits.view(-1, student_logits.size(-1))
+                    labels_flat = labels.view(-1)
+                    ce_loss = self.ce_loss_fn(student_flat, labels_flat)
+                else:
+                    ce_loss = torch.tensor(0.0, device=teacher_device)
 
-
-
-                if self.teacher_model:
-                    with torch.no_grad():
-                        teacher_logits = self.teacher_model(input_ids=input_ids.to(teacher_device), attention_mask=attention_mask.to(teacher_device)).logits
-                        teacher_logits = teacher_logits[:, :-1, :].contiguous()
-                        teacher_flat = teacher_logits.view(-1, teacher_logits.size(-1))
-
-                student_logits = self.student_model(input_ids=input_ids, attention_mask=attention_mask).logits.to(teacher_device)
-                del attention_mask
-                student_logits = student_logits[:, :-1, :].contiguous()
-                labels = input_ids[:, 1:].contiguous().to(teacher_device)
-
-                student_flat = student_logits.view(-1, student_logits.size(-1))
-                labels_flat = labels.view(-1)
 
                 batch_size = input_ids.size(0)
                 tokens += batch_size * input_ids.size(1)
-                ce_loss = self.ce_loss_fn(student_flat, labels_flat)
-                del input_ids, labels, labels_flat
 
-                if self.teacher_model:
-                    kl_loss = self.kl_loss_fn(F.log_softmax(student_flat, dim=-1), F.softmax(teacher_flat[:, :student_flat.size(dim=1)], dim=-1))
-                    del teacher_logits, teacher_flat
-                else:
-                    kl_loss = torch.tensor(0.0, device=teacher_device)
-                del student_logits, student_flat
-                loss = self.alpha * kl_loss + ce_loss
+
+
+                if self.distillation:
+                    
+                    new_input_ids, new_attention_mask = self.train_onpolicy(input_ids.clone() ,attention_mask.clone(), epoch, np.array(self.distribution))
+                    new_input_ids = new_input_ids.to(teacher_device)
+                    new_attention_mask = new_attention_mask.to(teacher_device)
+
+                    with torch.no_grad():
+                        teacher_logits = self.teacher_model(input_ids=new_input_ids, attention_mask=new_attention_mask).logits
+                        teacher_logits = teacher_logits[:, :-1, :].contiguous()
+                        teacher_flat = teacher_logits.view(-1, teacher_logits.size(-1)).detach().to(teacher_device)
+
+
+
+                    new_student_logits = self.student_model(input_ids=new_input_ids, attention_mask=new_attention_mask).logits
+                    new_student_logits = new_student_logits[:, :-1, :].contiguous()
+                    new_student_flat = new_student_logits.view(-1, new_student_logits.size(-1))
+                    new_student_flat = new_student_flat.to(teacher_device)
+
+
+
+                    
+
+                    if self.teacher_model:
+                        kl_loss = self.kl_loss_fn(F.log_softmax(new_student_flat, dim=-1), F.softmax(teacher_flat[:, :new_student_flat.size(dim=1)], dim=-1))
+                        
+                    else:
+                        kl_loss = torch.tensor(0.0, device=teacher_device)
+                
+                loss = self.alpha * kl_loss + self.beta *ce_loss
 
                 self.accelerator.backward(loss)
                 self.micro_step += 1
                 losses[0] += loss.detach()
                 losses[1] += ce_loss.detach()
                 losses[2] += kl_loss.detach()
-                del ce_loss, kl_loss, loss
+                del ce_loss, kl_loss, loss, new_student_logits, new_student_flat
+                del input_ids, labels, labels_flat, new_attention_mask, new_input_ids
+                del teacher_logits, teacher_flat
 
                 if self.micro_step % self.gradient_accumulation == 0:
                     self.step += 1
@@ -335,7 +358,7 @@ class Trainer():
         inputs = {"input_ids": input_ids, "attention_mask": attention_mask, "labels": labels}
 
         
-        rndm = random.randint(0, 100)/100
+        rndm = random.randint(1, 100)/100
         print("Random number generated:", rndm)
 
         if rndm <= distribution[0] :
@@ -376,12 +399,10 @@ class Trainer():
                     unwrapped_model, inputs, self.generation_config, pad_token_id
                 )
 
-        input_ids = new_input_ids
-        attention_mask = new_attention_mask
-        labels = new_labels
 
 
-        return  input_ids, attention_mask
+        return new_input_ids.clone().detach(), new_attention_mask.clone().detach()
+
 
     def _pad_to_max_length(self,input_id_list, attention_mask_list, pad_token_id=None):
         max_len = max(t.size(1) for t in input_id_list)
@@ -497,4 +518,3 @@ class Trainer():
     #         new_attention_mask[generated_tokens == pad_token_id] = 0
 
     #     return generated_tokens, new_attention_mask, new_labels
-

@@ -25,7 +25,7 @@ accelerate launch \
     --val-data-files ../../data/valid-dyna-giga-gemma3 \
     --max-seq-length 6144 \
     --batch-size 1 \
-    --gradient-accumulation 32 \
+    --gradient-accumulation 2 \
     --student models/gemma-3-1b-pt \
     --run-id $JOBID \
     --pretrained \

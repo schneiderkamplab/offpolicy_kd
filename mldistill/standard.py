@@ -6,10 +6,15 @@ from .sampler import RandomSampler
 from .utils import load_datasets
 import numpy as np
 import json
+import torch._dynamo
+torch._dynamo.disable()
+torch._dynamo.config.suppress_errors = True
 
 __all__ = ["main"]
 
 def validate_distribution(ctx, param, value):
+    if value is None:  # user didn’t pass --distribution
+        return None
     try:
         # Convert JSON string to Python list of lists
         dist = json.loads(value)
@@ -43,6 +48,7 @@ def validate_distribution(ctx, param, value):
 @click.option('--offload-teacher', is_flag=True, help="Offload teacher model to separate GPU during training (default: False)")
 @click.option('--seed', default=42, help="Random seed for data shuffling (default: 42)")
 @click.option('--alpha', default=1.0, type=float, help="Weight for KL divergence loss in distillation (default: 1.0)")
+@click.option('--beta', default=1.0, type=float, help="Weight for CE loss (default: 1.0)")
 @click.option('--log-every', default=10, type=int, help="Log training loss every N steps (default: 10)")
 @click.option('--collect-every', default=None, type=int, help="Garbage collect every N steps, if not provided it will collect after each validation step (default: None)")
 @click.option('--val-every', default=100, type=int, help="Validate every N steps (default: 100)")
@@ -71,30 +77,29 @@ def validate_distribution(ctx, param, value):
 @click.option('--evaluate-only', is_flag=True, help="Only evaluate the model without training (default: False)")
 @click.option('--load-checkpoint', type=click.Path(exists=True), help="Path to a checkpoint to load the model from (default: None)")
 @click.option('--collate-type', default="truncate", type=click.Choice(['truncate', 'pack']), help="Collate function type to use for batching (default: truncate)")
-@click.option('--on_policy', is_flag=True, help="Do *on policy* distillation, use only with distillation flag (default: False)")
-@click.option('--distribution',callback=validate_distribution, help='JSON string for list of lists (e.g., [[0.25,0.25,0.25,0.25],[0.5,0.5,0,0]])'
+@click.option('--distribution',callback=validate_distribution, help='On-policy vs. off-policy distillation. Each term is [offpolicy, onpol-TeacherGen, onpol-StudentGen, onpol_TeacherStudentGen]. You can give different distributions for each epoch. JSON string for list of lists (e.g., [[0.25,0.25,0.25,0.25],[0.5,0.5,0,0]])'
 )
 @click.option('--max-new-tokens', default=128, type=int, help="Maximum number of new tokens to generate on on-policy distillation (default: 128)")
 
 def main(**args):
     _main(args, **args)
-def _main(args, train_data_files, val_data_files, experiment, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience, max_tokens, max_steps, warmup_steps, max_seq_length, gradient_accumulation, batch_size, learning_rate, compile, gradient_checkpointing, offload_optimizer, overwrite, yes, attn_implementation, lr_scheduler_type, evaluate_only, load_checkpoint, collate_type, on_policy, distribution, max_new_tokens):
-
-    distribution = np.array(distribution)
-
-    # Validate that distribution rows match num_epochs or is a single row
-    if distribution.shape[0] not in (1, num_epochs):
-        raise click.ClickException(
-            f"Number of rows in --distribution ({distribution.shape[0]}) must be 1 or equal to --num-epochs ({num_epochs})."
+def _main(args, train_data_files, val_data_files, experiment, student, teacher, pretrained, distillation, offload_teacher, seed, alpha, beta, log_every, collect_every, val_every, val_steps, save_every, save_path, save_template, log_path, run_id, num_epochs, patience, max_tokens, max_steps, warmup_steps, max_seq_length, gradient_accumulation, batch_size, learning_rate, compile, gradient_checkpointing, offload_optimizer, overwrite, yes, attn_implementation, lr_scheduler_type, evaluate_only, load_checkpoint, collate_type, distribution, max_new_tokens):
+    print("Starting standard...")
+    if distillation and not distribution:
+        raise ValueError(
+            "If --distillation is True, --distribution must be provided."
         )
     
-    if not isinstance(distribution, tuple) or len(distribution) != 4:
-        raise click.BadParameter("Must be a tuple of four floats.")
+    if distribution is not None:
+        distribution = np.array(distribution)
+
+        # Validate that distribution rows match num_epochs or is a single row
+        if distribution.shape[0] not in (1, num_epochs):
+            raise click.ClickException(
+                f"Number of rows in --distribution ({distribution.shape[0]}) must be 1 or equal to --num-epochs ({num_epochs})."
+            )
+
     
-    
-    total = sum(distribution)
-    if abs(total - 1.0) > 1e-6:  # allowing for floating point tolerance
-        raise click.BadParameter("The distribution values must sum to 1.0.")
     
     times = {}
     with timing(times, key="timing/load_datasets"):
@@ -117,6 +122,7 @@ def _main(args, train_data_files, val_data_files, experiment, student, teacher, 
         distillation=distillation,
         offload_teacher=offload_teacher,
         alpha=alpha,
+        beta=beta,
         log_every=log_every,
         collect_every=collect_every,
         val_every=val_every,
@@ -145,7 +151,6 @@ def _main(args, train_data_files, val_data_files, experiment, student, teacher, 
         evaluate_only=evaluate_only,
         load_checkpoint=load_checkpoint,
         collate_type=collate_type,
-        on_policy=on_policy,
         distribution=distribution,
         max_new_tokens=max_new_tokens
     )
