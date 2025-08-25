@@ -23,13 +23,15 @@ __all__ = ["main"]
 @click.option('--seed', default=42, help="Random seed for data shuffling (default: 42)")
 @click.option('--batch-size', default=1, type=int, help="Batch size (default: 1)")
 @click.option('--val-steps', default=None, type=int, help="Number of validation steps to run (default: no limit)")
+@click.option('--tokenize',is_flag=True, help="Whether to tokenize the data if it is not tokenized already.")
+@click.option('--pad-token-id', default=0, type=int, help='pad token id if the data is already tokenized. Default is 0')
 
 
 
 def main(**args):
     _main(args, **args)
 
-def _main(args, student, val_data_files, load_checkpoint, attn_implementation, max_seq_length, seed, batch_size, val_steps):
+def _main(args, student, val_data_files, load_checkpoint, attn_implementation, max_seq_length, seed, batch_size, val_steps, tokenize, pad_token_id):
     #################
     ### LOAD DATA ###
     #################
@@ -46,7 +48,7 @@ def _main(args, student, val_data_files, load_checkpoint, attn_implementation, m
     ##################
     ### LOAD MODEL ###
     ##################
-    print("Loading model from {student}")
+    print(f"Loading model from {student}")
     student_config = AutoConfig.from_pretrained(student)
     student_config.attn_implementation = attn_implementation
     student_config.max_position_embeddings = max_seq_length
@@ -57,9 +59,15 @@ def _main(args, student, val_data_files, load_checkpoint, attn_implementation, m
         state_dict = {k.removeprefix("module."): v for k, v in state_dict.items()}
         student_model.load_state_dict(state_dict)
     else:
-        raise ValueError("No checkpoint provided to load the model from.")
+        print("⚠️ No checkpoint provided — training will start from pretrained model.")
 
-    tokenizer = AutoTokenizer.from_pretrained(student)
+
+    if tokenize:
+        tokenizer = AutoTokenizer.from_pretrained(student)
+        pad_token_id=None
+    else:
+        tokenizer = None
+        
 
     ####################
     ### OTHER CONFIG ###
@@ -70,7 +78,7 @@ def _main(args, student, val_data_files, load_checkpoint, attn_implementation, m
     student_model.to("cuda" if torch.cuda.is_available() else "cpu")
     student_model.eval()
 
-    scores = evaluate_perplexity(student_model, val_loader, tokenizer=tokenizer, force_max_length=max_seq_length, limit_num_steps=val_steps)
+    scores = evaluate_perplexity(student_model, val_loader, tokenizer=tokenizer, force_max_length=max_seq_length, limit_num_steps=val_steps, pad_token_id=pad_token_id)
     scores["model_name"] = student
     scores["checkpoint"] = load_checkpoint
     scores["val_data_files"] = val_data_files
@@ -183,22 +191,44 @@ def find_parquet_files(paths: Union[str, List[str]]) -> List[str]:
                 for f in files:
                     if f.endswith(".parquet"):
                         parquet_files.append(os.path.join(root, f))
-        elif os.path.isfile(p) and p.endswith(".parquet"):
+                        ending="parquet"
+
+                    elif f.endswith(".json"):
+                        parquet_files.append(os.path.join(root, f))
+                        ending="json"
+        elif os.path.isfile(p) and (p.endswith(".parquet") ):
             parquet_files.append(p)
+            ending="parquet"
+        elif os.path.isfile(p) and p.endswith(".json"):
+            parquet_files.append(p)
+            ending="json"
         else:
             print(f"Warning: {p} is not a .parquet file or directory.")
-    return parquet_files
+    return parquet_files, ending
 
 def load_datasets(
     val_data_paths: Union[str, List[str]],
 ):
-    val_data_files = find_parquet_files(val_data_paths)
+
+
+   # all_valid = all(os.path.isfile(f) and f.lower().endswith(".json") for f in val_data_paths)
+    
+   # if all_valid:
+        # If all valid, load and return datasets
+   #     val_datasets = [
+    #        load_dataset("json", data_files=f, split="train")
+    #        for f in val_data_paths
+    #    ]
+    #    return val_datasets
+
+
+    val_data_files, ending = find_parquet_files(val_data_paths)
 
     if not val_data_files:
         raise ValueError("No valid parquet files found for validation data.")
 
     val_datasets = [
-        load_dataset("parquet", data_files=val_data_file, split="train", columns=['input_ids'])
+        load_dataset(ending, data_files=val_data_file, split="train", **({'columns': ['input_ids']} if val_data_file.lower().endswith(".parquet") else {}))
         for val_data_file in val_data_files
     ]
 

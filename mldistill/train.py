@@ -23,12 +23,14 @@ class Trainer():
         train_loader: torch.utils.data.DataLoader,
         val_loader: torch.utils.data.DataLoader,
         train_logger: Logger,
+        distillation: bool,
         val_logger: Logger,
         optimizer: torch.optim.Optimizer,
         lr_scheduler: SchedulerType,
         ce_loss_fn: torch.nn.Module,
         kl_loss_fn: torch.nn.Module,
         alpha: float,
+        beta: float,
         collect_every: int | None,
         val_every: int,
         val_steps: int,
@@ -40,7 +42,6 @@ class Trainer():
         gradient_accumulation: int,
         offload_optimizer: bool,
         initial_step: int,
-        on_policy,
         distribution=(1, 0, 0, 0),
         max_new_tokens: int = 128,
         generation_config: GenerationConfig | None = None,
@@ -57,6 +58,7 @@ class Trainer():
         self.ce_loss_fn = ce_loss_fn
         self.kl_loss_fn = kl_loss_fn
         self.alpha = alpha
+        self.beta = beta
         self.collect_every = collect_every
         self.val_every = val_every
         self.val_steps = val_steps
@@ -71,8 +73,8 @@ class Trainer():
         self.max_tokens = max_tokens
         self.max_steps = max_steps
         self.gradient_accumulation = gradient_accumulation
+        self.distillation = distillation
         self.offload_optimizer = offload_optimizer
-        self.on_policy = on_policy
         self.distribution = distribution
         self.max_new_tokens = max_new_tokens
         if generation_config is None:
@@ -172,58 +174,93 @@ class Trainer():
         self.tokens = self.tokens.to(teacher_device)
         eval_result = self.evaluate(num_steps=self.val_steps)
         self.val_logger.log(step=self.step, **eval_result)
+        torch._dynamo.config.suppress_errors = True
         losses = torch.zeros(3, device=teacher_device, dtype=torch.float32)
         tokens = torch.tensor(0, device=teacher_device, dtype=torch.int64)
         progress_bar = tqdm(self.train_loader, unit="batches", total=self.max_steps)
         for epoch in range(num_epochs):
             progress_bar.set_description(f"Epoch {epoch + 1}/{num_epochs}")
             for batch in self.train_loader:
-
+                print(f"batch: {batch}")
                 input_ids = batch["input_ids"]
                 attention_mask = batch["attention_mask"]
+                input_ids = input_ids.to(teacher_device)
+                attention_mask = attention_mask.to(teacher_device)
 
-
-                if self.on_policy:
-                    
-                    input_ids, attention_mask = self.train_onpolicy(input_ids,attention_mask, epoch, np.array(self.distribution))
-
-
-
-                if self.teacher_model:
-                    with torch.no_grad():
-                        teacher_logits = self.teacher_model(input_ids=input_ids.to(teacher_device), attention_mask=attention_mask.to(teacher_device)).logits
-                        teacher_logits = teacher_logits[:, :-1, :].contiguous()
-                        teacher_flat = teacher_logits.view(-1, teacher_logits.size(-1))
-
-                student_logits = self.student_model(input_ids=input_ids, attention_mask=attention_mask).logits.to(teacher_device)
-                del attention_mask
-                student_logits = student_logits[:, :-1, :].contiguous()
-                labels = input_ids[:, 1:].contiguous().to(teacher_device)
-
-                student_flat = student_logits.view(-1, student_logits.size(-1))
-                labels_flat = labels.view(-1)
+                # Causal language modeling loss
+                if self.beta > 0.0:
+                    print("Using causal language modeling loss")
+                    student_logits = self.student_model(input_ids=input_ids, attention_mask=attention_mask).logits.to(teacher_device)
+                    student_logits = student_logits[:, :-1, :].contiguous()
+                    labels = input_ids[:, 1:].contiguous().to(teacher_device)
+                    student_flat = student_logits.view(-1, student_logits.size(-1))
+                    labels_flat = labels.view(-1)
+                    ce_loss = self.ce_loss_fn(student_flat, labels_flat)
+                else:
+                    ce_loss = torch.tensor(0.0, device=teacher_device)
 
                 batch_size = input_ids.size(0)
                 tokens += batch_size * input_ids.size(1)
-                ce_loss = self.ce_loss_fn(student_flat, labels_flat)
-                del input_ids, labels, labels_flat
 
-                if self.teacher_model:
-                    kl_loss = self.kl_loss_fn(F.log_softmax(student_flat, dim=-1), F.softmax(teacher_flat[:, :student_flat.size(dim=1)], dim=-1))
-                    del teacher_logits, teacher_flat
+                #del student_logits, student_flat, labels, labels_flat
+
+                # Supervised KD loss
+                if self.distillation:
+                    print("Using distillation")
+                    assert self.teacher_model is not None, "Teacher model must be provided for distillation training."
+                    assert self.distribution is not None, "Distribution must be provided for distillation training."
+                    # Generate new data on-policy
+                    new_input_ids, new_attention_mask = self.train_onpolicy(input_ids,attention_mask, epoch, np.array(self.distribution))
+
+                    new_input_ids = new_input_ids.to(teacher_device)
+                    new_attention_mask = new_attention_mask.to(teacher_device) 
+                    # Calculate kl loss for new data
+                    with torch.no_grad():
+                        new_teacher_logits = self.teacher_model(input_ids=new_input_ids, attention_mask=new_attention_mask).logits
+                        new_teacher_logits = new_teacher_logits[:, :-1, :].contiguous()
+                        new_teacher_flat = new_teacher_logits.view(-1, new_teacher_logits.size(-1))
+
+                    new_student_logits = self.student_model(input_ids=new_input_ids, attention_mask=new_attention_mask).logits.to(teacher_device)
+                    new_student_logits = new_student_logits[:, :-1, :].contiguous()
+                    new_student_flat = new_student_logits.view(-1, new_student_logits.size(-1))
+
+                    print("kl loss calculation")
+                    kl_loss = self.kl_loss_fn(F.log_softmax(new_student_flat, dim=-1), F.softmax(new_teacher_flat[:, :new_student_flat.size(dim=1)], dim=-1))
+                    #del new_teacher_logits, new_teacher_flat, new_student_logits, new_student_flat, new_attention_mask, new_input_ids, input_ids, attention_mask
+
+                elif self.teacher_model:
+                    raise NotImplementedError("On-policy training is required for teacher model.")
+
+
+                #elif self.teacher_model:
+                #    with torch.no_grad():
+                #        teacher_logits = self.teacher_model(input_ids=input_ids, attention_mask=attention_mask).logits
+                #        teacher_logits = teacher_logits[:, :-1, :].contiguous()
+                #        teacher_flat = teacher_logits.view(-1, teacher_logits.size(-1))
+                #        kl_loss = self.kl_loss_fn(F.log_softmax(student_flat, dim=-1), F.softmax(teacher_flat[:, :student_flat.size(dim=1)], dim=-1))
+                #        del teacher_logits, teacher_flat
+
                 else:
+                    assert self.beta > 0.0, "Beta must be greater than 0.0 when training off-policy without teacher."
                     kl_loss = torch.tensor(0.0, device=teacher_device)
-                del student_logits, student_flat
-                loss = self.alpha * kl_loss + ce_loss
 
+                
+                
+
+                print("total loss calculation")
+                loss = self.alpha * kl_loss + self.beta * ce_loss
+                print("0")
                 self.accelerator.backward(loss)
                 self.micro_step += 1
+                print("1")
                 losses[0] += loss.detach()
                 losses[1] += ce_loss.detach()
                 losses[2] += kl_loss.detach()
+                print("2")
                 del ce_loss, kl_loss, loss
-
+                print("finished loss calculation")
                 if self.micro_step % self.gradient_accumulation == 0:
+                    print("micro step")
                     self.step += 1
                     progress_bar.update(1)
                     if self.offload_optimizer:
@@ -299,12 +336,12 @@ class Trainer():
             generation_config=generation_config,
             return_dict_in_generate=True,
         )
-        print("size input_ids:", inputs["input_ids"].shape)
+        #print("size input_ids:", inputs["input_ids"].shape)
 
 
 
         generated_tokens = generated_outputs.sequences
-        print("size generated_outputs:", generated_outputs.sequences.shape)
+        #print("size generated_outputs:", generated_outputs.sequences.shape)
         new_attention_mask = torch.ones_like(generated_tokens)
         new_labels = generated_tokens.clone()
 
@@ -328,24 +365,24 @@ class Trainer():
             distribution = distribution[epoch]
         else:
             distribution = distribution[0]
-        print("Using distribution:", distribution)
-        print("distribution 0 :", distribution[0])
+        #print("Using distribution:", distribution)
+        #print("distribution 0 :", distribution[0])
 
         labels = input_ids[:, 1:].contiguous()
         inputs = {"input_ids": input_ids, "attention_mask": attention_mask, "labels": labels}
 
         
-        rndm = random.randint(0, 100)/100
-        print("Random number generated:", rndm)
+        rndm = random.randint(1, 99)/100
 
         if rndm <= distribution[0] :
             print("enter 0")
+            print("random number is:", rndm, "and distribution[0] is:", distribution[0])
             new_input_ids = input_ids
             new_attention_mask = attention_mask
             new_labels = labels
 
         elif rndm <= distribution[0]+distribution[1]:
-            print("enter 1")
+            #print("enter 1")
             # Mode 1: Teacher generation
             with unwrap_model_for_generation(self.teacher_model, self.accelerator) as unwrapped_model:
                 new_input_ids, new_attention_mask, new_labels = self.generate_on_policy_outputs(

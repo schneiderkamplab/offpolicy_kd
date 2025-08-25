@@ -8,7 +8,7 @@ import torch
 from torch.utils.data import ConcatDataset, DataLoader
 from transformers import AutoModelForCausalLM, AutoConfig, get_scheduler
 from typing import Any, Dict, List
-
+import numpy as np
 from .train import Trainer
 from .utils import *
 
@@ -28,6 +28,7 @@ def distill(
     distillation: bool,
     offload_teacher: bool,
     alpha: float,
+    beta: float,
     log_every: int,
     collect_every: int,
     val_every: int,
@@ -56,7 +57,6 @@ def distill(
     evaluate_only: bool,
     load_checkpoint: str | None,
     collate_type: str,
-    on_policy: bool, 
     distribution: tuple[float, float, float, float],
     max_new_tokens: int
 ) -> None:
@@ -65,7 +65,8 @@ def distill(
         rank = accelerator.process_index
         world_size = accelerator.num_processes
         _collate_fn = partial(collate_fn, max_seq_length=max_seq_length, collate_type=collate_type)
-        if on_policy:
+
+        if all(row[0] < 1 for row in distribution): # in this case, we are doing on policy distillation (if the first num<1, the other % of that comes from on-policy), so we need to adjust the max_seq_length, we'll need to adjust this when we do offpolicy in one epoch and then switch to on-policy
             _collate_fn = partial(collate_fn, max_seq_length=max_seq_length-max_new_tokens, collate_type=collate_type)
         train_combined_dataset = None if evaluate_only else ConcatDataset(train_datasets)
         train_loader = None if evaluate_only else DataLoader(train_combined_dataset, sampler=train_sampler, batch_size=batch_size, shuffle=False, collate_fn=_collate_fn, num_workers=0)
@@ -102,7 +103,7 @@ def distill(
                     pass
 
     with timing(times, key="timing/prepare_for_training"):
-        ce_loss_fn = torch.nn.CrossEntropyLoss()
+        ce_loss_fn = torch.nn.CrossEntropyLoss(ignore_index=-100)
         kl_loss_fn = torch.nn.KLDivLoss(reduction="batchmean")
         if evaluate_only:
             if offload_teacher and teacher_model:
@@ -154,12 +155,14 @@ def distill(
             student_model=student_model,
             teacher_model=teacher_model,
             train_loader=train_loader,
+            distillation=distillation,
             val_loader=val_loader,
             ce_loss_fn=ce_loss_fn,
             kl_loss_fn=kl_loss_fn,
             optimizer=optimizer,
             lr_scheduler=lr_scheduler, 
             alpha=alpha,
+            beta=beta,
             collect_every=collect_every,
             val_every=val_every,
             val_steps=val_steps,
@@ -173,7 +176,6 @@ def distill(
             gradient_accumulation=gradient_accumulation,
             offload_optimizer=offload_optimizer,
             initial_step=initial_step,
-            on_policy=on_policy,
             distribution=distribution,
             max_new_tokens=max_new_tokens,
         )

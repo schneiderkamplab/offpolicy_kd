@@ -1,5 +1,5 @@
 #!/bin/bash
-pip install .
+#pip install .
 echo "Running tests with mld-regmix and mld-standard"
 
 mld-regmix test/mixture/test.txt  --num-epochs 2 --val-every 10 --save-every 10 --batch-size 2 --pretrained --distillation --on_policy --distribution '[[0,0,1,0]]' --overwrite --yes --max-new-tokens 256
