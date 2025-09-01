@@ -68,7 +68,7 @@ def distill(
         print(f"Rank {rank} using device {accelerator.device}")
         _collate_fn = partial(collate_fn, max_seq_length=max_seq_length, collate_type=collate_type)
 
-        if all(row[0] < 1 for row in distribution): # in this case, we are doing on policy distillation (if the first num<1, the other % of that comes from on-policy), so we need to adjust the max_seq_length, we'll need to adjust this when we do offpolicy in one epoch and then switch to on-policy
+        if distribution is not None and all(row[0] < 1 for row in distribution): # in this case, we are doing on policy distillation (if the first num<1, the other % of that comes from on-policy), so we need to adjust the max_seq_length, we'll need to adjust this when we do offpolicy in one epoch and then switch to on-policy
             _collate_fn = partial(collate_fn, max_seq_length=max_seq_length-max_new_tokens, collate_type=collate_type)
         train_combined_dataset = None if evaluate_only else ConcatDataset(train_datasets)
         train_loader = None if evaluate_only else DataLoader(train_combined_dataset, sampler=train_sampler, batch_size=batch_size, shuffle=False, collate_fn=_collate_fn, num_workers=0)

@@ -25,4 +25,4 @@ accelerate launch \
   --patience 10000 \
 > >(tee logs/packed/$JOBID/stdout.txt) \
 2> >(tee logs/packed/$JOBID/stderr.txt >&2)
-  --teacher models/gemma-3-270m-pt \
+#  --teacher models/gemma-3-270m-pt \
