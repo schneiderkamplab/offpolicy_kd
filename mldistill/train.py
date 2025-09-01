@@ -11,6 +11,7 @@ from .utils import *
 from transformers import GenerationConfig
 import random
 from .gkd_config import GKDConfig
+torch.autograd.set_detect_anomaly(True)
 
 __all__ = ["Trainer"]
 
@@ -168,6 +169,8 @@ class Trainer():
         teacher_device = self.student_model.device
         if self.teacher_model:
             self.teacher_model.eval()
+            for param in self.teacher_model.parameters():
+                param.requires_grad = False
             teacher_device = self.teacher_model.device
         self.ce_loss_fn = self.ce_loss_fn.to(teacher_device)
         self.kl_loss_fn = self.kl_loss_fn.to(teacher_device)
@@ -178,7 +181,6 @@ class Trainer():
         tokens = torch.tensor(0, device=teacher_device, dtype=torch.int64)
         progress_bar = tqdm(self.train_loader, unit="batches", total=self.max_steps)
 
-        torch.autograd.set_detect_anomaly(True)
 
         for epoch in range(num_epochs):
             progress_bar.set_description(f"Epoch {epoch + 1}/{num_epochs}")
@@ -191,7 +193,7 @@ class Trainer():
                 attention_mask = attention_mask.to(teacher_device)
 
                 if self.beta > 0.0:
-                    print("Using causal language modeling loss")
+                    #print("Using causal language modeling loss")
                     student_logits = self.student_model(input_ids=input_ids, attention_mask=attention_mask).logits.to(teacher_device)
                     student_logits = student_logits[:, :-1, :].contiguous()
                     labels = input_ids[:, 1:].contiguous().to(teacher_device)
@@ -199,52 +201,47 @@ class Trainer():
                     labels_flat = labels.view(-1)
                     ce_loss = self.ce_loss_fn(student_flat, labels_flat)
                 else:
-                    ce_loss = torch.tensor(0.0, device=teacher_device)
+                    ce_loss = torch.tensor(0.0, device="cuda")
+                #print("ce_loss:", ce_loss.item())
 
+                self.accelerator.backward(ce_loss)
 
                 batch_size = input_ids.size(0)
                 tokens += batch_size * input_ids.size(1)
 
-
-
                 if self.distillation:
-                    
-                    new_input_ids, new_attention_mask = self.train_onpolicy(input_ids.clone() ,attention_mask.clone(), epoch, np.array(self.distribution))
+                    new_input_ids, new_attention_mask = self.train_onpolicy(input_ids.clone().detach(), attention_mask.clone().detach(), epoch, np.array(self.distribution))
                     new_input_ids = new_input_ids.to(teacher_device)
                     new_attention_mask = new_attention_mask.to(teacher_device)
 
                     with torch.no_grad():
                         teacher_logits = self.teacher_model(input_ids=new_input_ids, attention_mask=new_attention_mask).logits
                         teacher_logits = teacher_logits[:, :-1, :].contiguous()
-                        teacher_flat = teacher_logits.view(-1, teacher_logits.size(-1)).detach().to(teacher_device)
-
-
+                        teacher_flat = teacher_logits.view(-1, teacher_logits.size(-1)).to(teacher_device)
 
                     new_student_logits = self.student_model(input_ids=new_input_ids, attention_mask=new_attention_mask).logits
                     new_student_logits = new_student_logits[:, :-1, :].contiguous()
                     new_student_flat = new_student_logits.view(-1, new_student_logits.size(-1))
                     new_student_flat = new_student_flat.to(teacher_device)
-
-
-
                     
 
-                    if self.teacher_model:
-                        kl_loss = self.kl_loss_fn(F.log_softmax(new_student_flat, dim=-1), F.softmax(teacher_flat[:, :new_student_flat.size(dim=1)], dim=-1))
-                        
-                    else:
-                        kl_loss = torch.tensor(0.0, device=teacher_device)
-                
-                loss = self.alpha * kl_loss + self.beta *ce_loss
+                    kl_loss =  self.kl_loss_fn(F.log_softmax(new_student_flat, dim=-1), F.softmax(teacher_flat[:, :new_student_flat.size(dim=1)].detach(), dim=-1))
+                else:
+                    kl_loss = torch.tensor(0.0, device="cuda")
 
-                self.accelerator.backward(loss)
+                #print("kl_loss:", kl_loss)
+                
+                #loss = self.alpha * kl_loss + self.beta * ce_loss
+
+                #print("loss:", loss)
+                #print("right before backward")
+            
+                self.accelerator.backward(kl_loss)
                 self.micro_step += 1
-                losses[0] += loss.detach()
+                #losses[0] += loss.detach()
                 losses[1] += ce_loss.detach()
                 losses[2] += kl_loss.detach()
-                del ce_loss, kl_loss, loss, new_student_logits, new_student_flat
-                del input_ids, labels, labels_flat, new_attention_mask, new_input_ids
-                del teacher_logits, teacher_flat
+                
 
                 if self.micro_step % self.gradient_accumulation == 0:
                     self.step += 1
@@ -322,12 +319,15 @@ class Trainer():
             generation_config=generation_config,
             return_dict_in_generate=True,
         )
-        print("size input_ids:", inputs["input_ids"].shape)
-
-
+        #print("size input_ids:", inputs["input_ids"].shape)
 
         generated_tokens = generated_outputs.sequences
-        print("size generated_outputs:", generated_outputs.sequences.shape)
+        #print("generated_tokens", generated_tokens)
+        #generated_tokens = generated_tokens[:, inputs["input_ids"].shape[1]:]
+
+
+
+        #print("size generated_outputs:", generated_outputs.sequences.shape)
         new_attention_mask = torch.ones_like(generated_tokens)
         new_labels = generated_tokens.clone()
 
@@ -351,33 +351,31 @@ class Trainer():
             distribution = distribution[epoch]
         else:
             distribution = distribution[0]
-        print("Using distribution:", distribution)
-        print("distribution 0 :", distribution[0])
+        #print("Using distribution:", distribution)
+        #print("distribution 0 :", distribution[0])
 
         labels = input_ids[:, 1:].contiguous()
         inputs = {"input_ids": input_ids, "attention_mask": attention_mask, "labels": labels}
 
-        
         rndm = random.randint(1, 100)/100
-        print("Random number generated:", rndm)
+        #print("Random number generated:", rndm)
 
         if rndm <= distribution[0] :
-            print("enter 0")
+            #print("enter 0")
             new_input_ids = input_ids
             new_attention_mask = attention_mask
             new_labels = labels
 
         elif rndm <= distribution[0]+distribution[1]:
-            print("enter 1")
+            #print("enter 1")
             # Mode 1: Teacher generation
             with unwrap_model_for_generation(self.teacher_model, self.accelerator) as unwrapped_model:
                 new_input_ids, new_attention_mask, new_labels = self.generate_on_policy_outputs(
                     unwrapped_model, inputs, self.generation_config, pad_token_id
                 )
             
-
         elif rndm <= distribution[0]+distribution[1]+distribution[2]:
-            print("enter 2")
+            #print("enter 2")
             with unwrap_model_for_generation(self.student_model, self.accelerator) as unwrapped_model:
                 new_input_ids, new_attention_mask, new_labels = self.generate_on_policy_outputs(
                     unwrapped_model, inputs, self.generation_config, pad_token_id
@@ -385,23 +383,22 @@ class Trainer():
             
 
         elif rndm <= distribution[0]+distribution[1]+distribution[2]+distribution[3]:
-            print("enter 3")
+            #print("enter 3")
             
             with unwrap_model_for_generation(self.teacher_model, self.accelerator) as unwrapped_model:
-                new_input_ids, new_attention_mask, new_labels = self.generate_on_policy_outputs(
+                new_input_ids0, new_attention_mask, new_labels = self.generate_on_policy_outputs(
                     unwrapped_model, inputs, self.generation_config, pad_token_id
                 )
 
-            inputs = {"input_ids": new_input_ids, "attention_mask": new_attention_mask, "labels": new_labels}
+            inputs2 = {"input_ids": new_input_ids0, "attention_mask": new_attention_mask, "labels": new_labels}
 
             with unwrap_model_for_generation(self.student_model, self.accelerator) as unwrapped_model:
                 new_input_ids, new_attention_mask, new_labels = self.generate_on_policy_outputs(
-                    unwrapped_model, inputs, self.generation_config, pad_token_id
+                    unwrapped_model, inputs2, self.generation_config, pad_token_id
                 )
 
 
-
-        return new_input_ids.clone().detach(), new_attention_mask.clone().detach()
+        return new_input_ids, new_attention_mask
 
 
     def _pad_to_max_length(self,input_id_list, attention_mask_list, pad_token_id=None):

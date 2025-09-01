@@ -61,9 +61,11 @@ def distill(
     max_new_tokens: int
 ) -> None:
     with timing(times, key="timing/prepare_dataloaders"):
-        accelerator = Accelerator(kwargs_handlers=[DistributedDataParallelKwargs(find_unused_parameters=True)])
+        # accelerator = Accelerator(kwargs_handlers=[DistributedDataParallelKwargs(find_unused_parameters=True)])
+        accelerator = Accelerator()
         rank = accelerator.process_index
         world_size = accelerator.num_processes
+        print(f"Rank {rank} using device {accelerator.device}")
         _collate_fn = partial(collate_fn, max_seq_length=max_seq_length, collate_type=collate_type)
 
         if all(row[0] < 1 for row in distribution): # in this case, we are doing on policy distillation (if the first num<1, the other % of that comes from on-policy), so we need to adjust the max_seq_length, we'll need to adjust this when we do offpolicy in one epoch and then switch to on-policy
@@ -133,6 +135,7 @@ def distill(
                 train_loader, val_loader, student_model, optimizer = accelerator.prepare(train_loader, val_loader, student_model, optimizer)
                 teacher_model.to(inc_device(student_model.device, world_size))
             else:
+                
                 train_loader, val_loader, student_model, optimizer, teacher_model = accelerator.prepare(train_loader, val_loader, student_model, optimizer, teacher_model)
             if compile:
                 student_model = torch.compile(student_model)

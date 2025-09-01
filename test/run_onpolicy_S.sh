@@ -5,7 +5,7 @@ echo "Starting on-policy training..."
 
 export NCCL_MAX_NCHANNELS=72
 export NCCL_MIN_NCHANNELS=72
-export JOBID=teach_gen
+export JOBID=student_gen
 export TORCH_COMPILE=0
 mkdir -p logs/onpolicy/$JOBID
 
@@ -13,19 +13,19 @@ mkdir -p logs/onpolicy/$JOBID
 cd "$(dirname "$0")/.."
 
 # Run the script directly with accelerate
-accelerate launch \
-   --main_process_port 29500 \
-   --multi_gpu \
-   --gpu_ids 0,1,2,3 \
-   --num_processes 4 \
-   --num_machines 1 \
-   --machine_rank 0 \
-   --mixed_precision bf16 \
-    -m mldistill.standard ../../data/train-giga-gemma3 \
+#accelerate launch \
+#    --main_process_port 29400 \
+#    --multi_gpu \
+#    --gpu_ids all \
+#    --num_processes 1 \
+#    --num_machines 1 \
+#    --machine_rank 0 \
+#    --mixed_precision bf16 \
+    python3 -m mldistill.standard ../../data/train-giga-gemma3 \
     --val-data-files ../../data/valid-dyna-giga-gemma3 \
-    --max-seq-length 6144 \
+    --max-seq-length 4096 \
     --batch-size 1 \
-    --gradient-accumulation 32 \
+    --gradient-accumulation 2 \
     --student models/gemma-3-1b-pt \
     --run-id $JOBID \
     --pretrained \
@@ -39,7 +39,7 @@ accelerate launch \
     --overwrite \
     --yes \
     --compile \
-    --distribution '[[0.0,1.0,0.0,0.0]]' \
+    --distribution '[[0.0,0.0,1.0,0.0]]' \
     --save-path checkpoints/onpolicy \
     --patience 1000 \
     --max-new-tokens 32 \
