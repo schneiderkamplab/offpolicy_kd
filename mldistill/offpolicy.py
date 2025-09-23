@@ -58,7 +58,7 @@ def distill(
     collate_type: str,
 ) -> None:
     with timing(times, key="timing/prepare_dataloaders"):
-        accelerator = Accelerator(kwargs_handlers=[DistributedDataParallelKwargs(find_unused_parameters=True)])
+        accelerator = Accelerator(kwargs_handlers=[DistributedDataParallelKwargs(find_unused_parameters=False)])
         rank = accelerator.process_index
         world_size = accelerator.num_processes
         _collate_fn = partial(collate_fn, max_seq_length=max_seq_length, collate_type=collate_type)
