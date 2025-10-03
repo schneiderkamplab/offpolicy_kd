@@ -198,7 +198,10 @@ def main(data_files, teacher, student, pretrained):
                     patience_counter = 0
                     if step % save_every == 0:
                         checkpoint_file = os.path.join(save_path, f"student_step{step}.pt")
-                        torch.save(student_model.state_dict(), checkpoint_file)
+                        torch.save({
+                            'config': json.dumps(student_config),
+                            'model': student_model.state_dict(),
+                            }, checkpoint_file)
                         print(f"✅ Saved checkpoint: {checkpoint_file}")
                 else:
                     patience_counter += 1
