@@ -25,9 +25,9 @@ accelerate launch \
   --mixed_precision bf16 \
   -m mldistill.standard ../../$TRAIN_DATASET \
   --val-data-files ../../$VAL_DATASET \
-  --max-seq-length 1024 \
-  --batch-size 8 \
-  --gradient-accumulation 8 \
+  --max-seq-length 6144 \
+  --batch-size 1 \
+  --gradient-accumulation 32 \
   --student $STUDENT_MODEL \
   --run-id $JOBID \
   --pretrained \

@@ -227,6 +227,7 @@ class Trainer():
                     
 
                     kl_loss =  self.kl_loss_fn(F.log_softmax(new_student_flat, dim=-1), F.softmax(teacher_flat[:, :new_student_flat.size(dim=1)].detach(), dim=-1))
+                    self.accelerator.backward(kl_loss)
                 else:
                     kl_loss = torch.tensor(0.0, device="cuda")
 
@@ -237,7 +238,7 @@ class Trainer():
                 #print("loss:", loss)
                 #print("right before backward")
             
-                self.accelerator.backward(kl_loss)
+                
                 self.micro_step += 1
                 #losses[0] += loss.detach()
                 losses[1] += ce_loss.detach()
