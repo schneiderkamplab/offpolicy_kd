@@ -191,7 +191,7 @@ class Trainer():
 
                 input_ids = input_ids.to(teacher_device)
                 attention_mask = attention_mask.to(teacher_device)
-
+                print(f"beta is {self.beta}")
                 if self.beta > 0.0:
                     #print("Using causal language modeling loss")
                     student_logits = self.student_model(input_ids=input_ids, attention_mask=attention_mask).logits.to(teacher_device)
@@ -210,6 +210,7 @@ class Trainer():
                 tokens += batch_size * input_ids.size(1)
 
                 if self.distillation:
+                    print("enter distillation")
                     new_input_ids, new_attention_mask = self.train_onpolicy(input_ids.clone().detach(), attention_mask.clone().detach(), epoch, np.array(self.distribution))
                     new_input_ids = new_input_ids.to(teacher_device)
                     new_attention_mask = new_attention_mask.to(teacher_device)
@@ -351,7 +352,7 @@ class Trainer():
             distribution = distribution[epoch]
         else:
             distribution = distribution[0]
-        #print("Using distribution:", distribution)
+        print("Using distribution:", distribution)
         #print("distribution 0 :", distribution[0])
 
         labels = input_ids[:, 1:].contiguous()
@@ -361,13 +362,13 @@ class Trainer():
         #print("Random number generated:", rndm)
 
         if rndm <= distribution[0] :
-            #print("enter 0")
+            print("enter 0")
             new_input_ids = input_ids
             new_attention_mask = attention_mask
             new_labels = labels
 
         elif rndm <= distribution[0]+distribution[1]:
-            #print("enter 1")
+            print("enter 1")
             # Mode 1: Teacher generation
             with unwrap_model_for_generation(self.teacher_model, self.accelerator) as unwrapped_model:
                 new_input_ids, new_attention_mask, new_labels = self.generate_on_policy_outputs(
@@ -375,7 +376,7 @@ class Trainer():
                 )
             
         elif rndm <= distribution[0]+distribution[1]+distribution[2]:
-            #print("enter 2")
+            print("enter 2")
             with unwrap_model_for_generation(self.student_model, self.accelerator) as unwrapped_model:
                 new_input_ids, new_attention_mask, new_labels = self.generate_on_policy_outputs(
                     unwrapped_model, inputs, self.generation_config, pad_token_id
@@ -383,7 +384,7 @@ class Trainer():
             
 
         elif rndm <= distribution[0]+distribution[1]+distribution[2]+distribution[3]:
-            #print("enter 3")
+            print("enter 3")
             
             with unwrap_model_for_generation(self.teacher_model, self.accelerator) as unwrapped_model:
                 new_input_ids0, new_attention_mask, new_labels = self.generate_on_policy_outputs(

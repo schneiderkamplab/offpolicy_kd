@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from torch.utils.data import ConcatDataset, DataLoader
+from datasets import concatenate_datasets
 from typing import IO, List, Tuple, Union
 from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM
@@ -12,6 +12,7 @@ import click
 from functools import partial
 from transformers import AutoModelForCausalLM, AutoConfig, get_scheduler
 from pathlib import Path
+from torch.utils.data import DataLoader
 
 __all__ = ["main"]
 @click.command()
@@ -22,6 +23,8 @@ __all__ = ["main"]
 @click.option('--max-seq-length', type=int, default=4096, help="Maximum sequence length for the model (default: 4096)")
 @click.option('--seed', default=42, help="Random seed for data shuffling (default: 42)")
 @click.option('--batch-size', default=1, type=int, help="Batch size (default: 1)")
+@click.option('--tokenized', is_flag=True, type=int, help="Is the data already tokenized?")
+@click.option('--pad-token-id', default=0, type=int, help="Assign the pad token id you used when tokenizing the data. Default is 0")
 @click.option('--val-steps', default=None, type=int, help="Number of validation steps to run (default: no limit)")
 
 
@@ -29,18 +32,41 @@ __all__ = ["main"]
 def main(**args):
     _main(args, **args)
 
-def _main(args, student, val_data_files, load_checkpoint, attn_implementation, max_seq_length, seed, batch_size, val_steps):
+def _main(args, student, val_data_files, load_checkpoint, attn_implementation, max_seq_length, seed, batch_size, tokenized, pad_token_id,val_steps):
     #################
     ### LOAD DATA ###
     #################
     print("Loading datasets...")
+    def tokenize_fn(examples):
+        return tokenizer(examples['text'], truncation=True, max_length=2048)
     val_datasets = load_datasets(val_data_files)
+    val_combined_dataset = concatenate_datasets(val_datasets)
 
-    val_combined_dataset = ConcatDataset(val_datasets)
+    if tokenized is None:
+
+        tokenizer = AutoTokenizer.from_pretrained(student)
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token_id = tokenizer.eos_token_id
+        ignore_index = tokenizer.pad_token_id
+        tokenizer.padding_side = "right"
+        tokenized_dataset = val_combined_dataset.map(tokenize_fn, batched=True, remove_columns=['text'])
+
+    else:
+        
+        tokenizer=None
+        tokenized_dataset = val_combined_dataset
+        # If pre-tokenized data, use the provided padding token ID
+        print("Using pre-tokenized data. Make sure it is padded from the right")
+        assert pad_token_id is not None, "If tokenizer is None, padding_token_id must be provided."
+        ignore_index = pad_token_id
+
+
+
+    
 
     _collate_fn = partial(collate_fn, max_seq_length=max_seq_length)
     val_sampler = RandomSampler(val_datasets, seed=seed)
-    val_loader = DataLoader(val_combined_dataset, sampler=val_sampler, batch_size=batch_size, shuffle=False, collate_fn=_collate_fn, num_workers=0)
+    val_loader = DataLoader(tokenized_dataset, sampler=val_sampler, batch_size=batch_size, shuffle=False, collate_fn=_collate_fn, num_workers=0)
     print("Done.")
 
     ##################
@@ -54,12 +80,21 @@ def _main(args, student, val_data_files, load_checkpoint, attn_implementation, m
     
     if load_checkpoint is not None:
         state_dict = torch.load(load_checkpoint, map_location="cpu")
-        state_dict = {k.removeprefix("module."): v for k, v in state_dict.items()}
-        student_model.load_state_dict(state_dict)
-    else:
-        raise ValueError("No checkpoint provided to load the model from.")
+        new_state_dict = {}
+        for k, v in state_dict.items():
+            if k.startswith("_orig_mod."):
+                new_k = k.replace("_orig_mod.", "", 1)  # strip only the first occurrence
+            elif k.startswith("module."):
+                new_k = k.replace("module.", "", 1)     # handle DDP case too
+            else:
+                new_k = k
+            new_state_dict[new_k] = v
+        student_model.load_state_dict(new_state_dict, strict=False)
 
-    tokenizer = AutoTokenizer.from_pretrained(student)
+    else:
+        print("No checkpoint provided to load the model from.")
+
+    
 
     ####################
     ### OTHER CONFIG ###
@@ -70,7 +105,7 @@ def _main(args, student, val_data_files, load_checkpoint, attn_implementation, m
     student_model.to("cuda" if torch.cuda.is_available() else "cpu")
     student_model.eval()
 
-    scores = evaluate_perplexity(student_model, val_loader, tokenizer=tokenizer, force_max_length=max_seq_length, limit_num_steps=val_steps)
+    scores = evaluate_perplexity(student_model, val_loader, tokenizer=tokenizer, pad_token_id=pad_token_id, force_max_length=max_seq_length, limit_num_steps=val_steps, ignore_index=ignore_index)
     scores["model_name"] = student
     scores["checkpoint"] = load_checkpoint
     scores["val_data_files"] = val_data_files
@@ -88,6 +123,7 @@ def evaluate_perplexity(
     force_max_length: int = None,  # All of our models should be able to handle this length
     limit_num_steps: int = None, # testing purposes
     pad_token_id: int = None,  # Only used when tokenizer is None, otherwise it is set automatically
+    ignore_index: int = None,
 ) -> dict[str, float]:
     model.eval()
     device = model.device
@@ -97,42 +133,15 @@ def evaluate_perplexity(
 
     if limit_num_steps is not None:
         print(f"...limited to {limit_num_steps} steps")
-
     # Fix padding token
-    if tokenizer is not None:
-        if tokenizer.pad_token is None:
-            tokenizer.pad_token_id = tokenizer.eos_token_id
 
-        # Set ignore index
-        ignore_index = tokenizer.pad_token_id
-
-        # Force max length if provided, else use the max length of the tokenizer
-        max_length = force_max_length if force_max_length is not None else tokenizer.model_max_length
-        
-        # This is critical for our loss calculation to work correctly with bsz > 1
-        tokenizer.padding_side = "right"
-    else:
-        # If pre-tokenized data, use the provided padding token ID
-        print("Using pre-tokenized data. Make sure it is padded from the right")
-        assert pad_token_id is not None, "If tokenizer is None, padding_token_id must be provided."
-        ignore_index = pad_token_id
-
-    print("Using ignore_index:", ignore_index, "[this should correspond to padding token ID]")
     ce_loss_fn = nn.CrossEntropyLoss(reduction="none", ignore_index=ignore_index) 
 
     with torch.no_grad():
         for i, batch in enumerate(loader):
-            if tokenizer is not None:
-                # Tokenize
-                inputs = tokenizer(batch, return_tensors="pt", padding=True, truncation=True, max_length=max_length)
-                input_ids = inputs["input_ids"]
-                attention_mask = inputs["attention_mask"]
-            elif "input_ids" in batch and "attention_mask" in batch:
-                input_ids = batch["input_ids"]
-                attention_mask = batch["attention_mask"]
-                assert input_ids.size(1) <= force_max_length, f"Pre-tokenized Input sequence length {input_ids.size(1)} exceeds max length {force_max_length}."
-            else:
-                raise ValueError("Batch must contain 'input_ids' and 'attention_mask' or a tokenizer must be provided.")
+
+            input_ids = batch["input_ids"]
+            attention_mask = batch["attention_mask"]
 
             logits = model(input_ids=input_ids.to(device), attention_mask=attention_mask.to(device)).logits
             # Shift by one for LM loss calc
@@ -183,24 +192,41 @@ def find_parquet_files(paths: Union[str, List[str]]) -> List[str]:
                 for f in files:
                     if f.endswith(".parquet"):
                         parquet_files.append(os.path.join(root, f))
-        elif os.path.isfile(p) and p.endswith(".parquet"):
+                        ending="parquet"
+
+                    #elif f.endswith(".json"):
+                    #    parquet_files.append(os.path.join(root, f))
+                    #    ending="json"
+        elif os.path.isfile(p) and (p.endswith(".parquet") ):
             parquet_files.append(p)
+            ending="parquet"
+        elif os.path.isfile(p) and p.endswith(".json"):
+            parquet_files.append(p)
+            ending="json"
         else:
             print(f"Warning: {p} is not a .parquet file or directory.")
-    return parquet_files
+    return parquet_files, ending
 
 def load_datasets(
     val_data_paths: Union[str, List[str]],
 ):
-    val_data_files = find_parquet_files(val_data_paths)
 
-    if not val_data_files:
-        raise ValueError("No valid parquet files found for validation data.")
+    val_data_files, ending = find_parquet_files(val_data_paths)
 
-    val_datasets = [
-        load_dataset("parquet", data_files=val_data_file, split="train", columns=['input_ids'])
+
+    if ending=="parquet":
+        val_datasets = [
+        load_dataset(ending, data_files=val_data_file, split="train")
         for val_data_file in val_data_files
     ]
+
+
+    else:
+
+        val_datasets = [
+            load_dataset(ending, data_files=val_data_file, split="train", **({'columns': ['input_ids']} if val_data_file.lower().endswith(".parquet") else {}))
+            for val_data_file in val_data_files
+        ]
 
     return val_datasets
 

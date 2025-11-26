@@ -68,7 +68,7 @@ def distill(
         print(f"Rank {rank} using device {accelerator.device}")
         _collate_fn = partial(collate_fn, max_seq_length=max_seq_length, collate_type=collate_type)
 
-        if all(row[0] < 1 for row in distribution): # in this case, we are doing on policy distillation (if the first num<1, the other % of that comes from on-policy), so we need to adjust the max_seq_length, we'll need to adjust this when we do offpolicy in one epoch and then switch to on-policy
+        if distribution and all(row[0] < 1 for row in distribution): # in this case, we are doing on policy distillation (if the first num<1, the other % of that comes from on-policy), so we need to adjust the max_seq_length, we'll need to adjust this when we do offpolicy in one epoch and then switch to on-policy
             _collate_fn = partial(collate_fn, max_seq_length=max_seq_length-max_new_tokens, collate_type=collate_type)
         train_combined_dataset = None if evaluate_only else ConcatDataset(train_datasets)
         train_loader = None if evaluate_only else DataLoader(train_combined_dataset, sampler=train_sampler, batch_size=batch_size, shuffle=False, collate_fn=_collate_fn, num_workers=0)
@@ -77,17 +77,17 @@ def distill(
     teacher_model = None
     if distillation:
         with timing(times, key="timing/load_teacher_model"):
-            teacher_config = AutoConfig.from_pretrained(teacher)
+            teacher_config = AutoConfig.from_pretrained(teacher, trust_remote_code=True)
             teacher_config.attn_implementation = attn_implementation
             teacher_config.max_position_embeddings = max_seq_length
-            teacher_model = AutoModelForCausalLM.from_pretrained(teacher, config=teacher_config)
+            teacher_model = AutoModelForCausalLM.from_pretrained(teacher, config=teacher_config, trust_remote_code=True)
 
     with timing(times, key="timing/load_student_model"):
-        student_config = AutoConfig.from_pretrained(student)
+        student_config = AutoConfig.from_pretrained(student, trust_remote_code=True)
         student_config.attn_implementation = attn_implementation
         student_config.max_position_embeddings = max_seq_length
         if pretrained:
-            student_model = AutoModelForCausalLM.from_pretrained(student, config=student_config, attn_implementation='eager')
+            student_model = AutoModelForCausalLM.from_pretrained(student, config=student_config, attn_implementation='eager', trust_remote_code=True)
         else:
             student_model = AutoModelForCausalLM.from_config(student_config, attn_implementation='eager')
         if load_checkpoint is None:

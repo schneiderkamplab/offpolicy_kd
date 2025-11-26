@@ -9,6 +9,8 @@ import json
 import torch._dynamo
 torch._dynamo.disable()
 torch._dynamo.config.suppress_errors = True
+import os
+import torch 
 
 __all__ = ["main"]
 
@@ -102,12 +104,18 @@ def _main(args, train_data_files, val_data_files, experiment, student, teacher, 
     
     
     times = {}
+    print("Local rank:", int(os.environ.get("LOCAL_RANK", -1)))
+    print("Visible devices:", torch.cuda.device_count())
+    print("Device:", torch.cuda.current_device())
+
     with timing(times, key="timing/load_datasets"):
         print("Loading datasets...")
-        train_datasets, val_datasets = load_datasets(train_data_files, val_data_files, evaluate_only)
+        train_datasets, val_datasets = load_datasets(train_data_files, val_data_files, evaluate_only, student)
     with timing(times, key="timing/prepare_samplers"):
         train_sampler = None if evaluate_only else RandomSampler(train_datasets, seed=seed)
         val_sampler = RandomSampler(val_datasets, seed=seed)
+
+    print("Beginning distillation...")
     distill(
         args=args,
         times=times,

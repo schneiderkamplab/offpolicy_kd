@@ -5,7 +5,7 @@ echo "Starting on-policy training..."
 
 export NCCL_MAX_NCHANNELS=72
 export NCCL_MIN_NCHANNELS=72
-export JOBID=teach_gen
+export JOBID=tryingteach
 export TORCH_COMPILE=0
 mkdir -p logs/onpolicy/$JOBID
 
@@ -16,8 +16,8 @@ cd "$(dirname "$0")/.."
 accelerate launch \
    --main_process_port 29500 \
    --multi_gpu \
-   --gpu_ids 0,1,2,3 \
-   --num_processes 4 \
+   --gpu_ids 0,1 \
+   --num_processes 2 \
    --num_machines 1 \
    --machine_rank 0 \
    --mixed_precision bf16 \

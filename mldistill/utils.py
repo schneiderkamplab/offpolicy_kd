@@ -1,3 +1,4 @@
+from importlib.metadata import files
 import click
 from datasets import load_dataset
 from datetime import datetime
@@ -8,6 +9,9 @@ from pathlib import Path
 import torch
 from torch.nn.utils.rnn import pad_sequence
 from typing import IO, List, Tuple, Union
+import random
+import pyarrow.parquet as pq
+from transformers import AutoTokenizer
 
 __all__ = [
     'CheckPointer',
@@ -47,6 +51,7 @@ def load_datasets(
     train_data_paths: Union[str, List[str]],
     val_data_paths: Union[str, List[str]],
     evaluate_only: bool,
+    student: str,
 ):
     train_data_files = find_parquet_files(train_data_paths)
     val_data_files = find_parquet_files(val_data_paths)
@@ -56,14 +61,50 @@ def load_datasets(
     if not val_data_files:
         raise ValueError("No valid parquet files found for validation data.")
 
-    train_datasets = None if evaluate_only else [
-        load_dataset("parquet", data_files=train_data_file, split="train", columns=['input_ids'])
-        for train_data_file in train_data_files
-    ]
-    val_datasets = [
-        load_dataset("parquet", data_files=val_data_file, split="train", columns=['input_ids'])
-        for val_data_file in val_data_files
-    ]
+
+
+    # Pick one random file
+    sample_file = random.choice(train_data_files)
+    # Check if it's tokenized
+    schema = pq.read_schema(sample_file)
+    train_is_tokenized = "input_ids" in schema.names
+
+    # Pick one random file
+    sample_file = random.choice(val_data_files)
+    # Check if it's tokenized
+    schema = pq.read_schema(sample_file)
+    val_is_tokenized = "input_ids" in schema.names
+
+    def tokenize_function(examples):
+        tokenizer = AutoTokenizer.from_pretrained(student, trust_remote_code=True)
+        tokenizer.model_max_length = 2048
+        return tokenizer(examples["text"], truncation=True, padding="max_length")
+
+    if not train_is_tokenized and not evaluate_only:
+        print("⚠️ Train Datasets not tokenized — performing tokenization on the fly...")
+        train_datasets = load_dataset("parquet", data_files={"train": train_data_files})["train"]
+        train_datasets = train_datasets.map(tokenize_function, batched=True)
+
+
+    else:
+        print("✅ Dataset already tokenized.")
+        train_datasets = None if evaluate_only else [
+            load_dataset("parquet", data_files=train_data_file, split="train", columns=['input_ids'])
+            for train_data_file in train_data_files
+        ]
+
+    if not val_is_tokenized:
+        print("⚠️ Validation Datasets not tokenized — performing tokenization on the fly...")
+
+        val_datasets = load_dataset("parquet", data_files={"train": val_data_files})["train"]
+        val_datasets = val_datasets.map(tokenize_function, batched=True)
+
+    else:
+        val_datasets = [
+            load_dataset("parquet", data_files=val_data_file, split="train", columns=['input_ids'])
+            for val_data_file in val_data_files
+        ]
+    print("tokenization complete.")
 
     return train_datasets, val_datasets
 
