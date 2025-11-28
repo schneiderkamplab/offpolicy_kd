@@ -191,7 +191,7 @@ class Trainer():
 
                 input_ids = input_ids.to(teacher_device)
                 attention_mask = attention_mask.to(teacher_device)
-                print(f"beta is {self.beta}")
+                #print(f"beta is {self.beta}")
                 if self.beta > 0.0:
                     #print("Using causal language modeling loss")
                     student_logits = self.student_model(input_ids=input_ids, attention_mask=attention_mask).logits.to(teacher_device)
