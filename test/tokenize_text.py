@@ -70,7 +70,7 @@ def tokenize_function(examples):
 # --- Load dataset from parquet ---
 dataset = load_dataset(
     "parquet",
-    data_files="data/distillOlmo/distill-dyna-dolma-dyna-0-of-1-dolma-0-of-64-train.parquet"
+    data_files="data/distillOlmo/distill-dyna-cp-dyna-0-of-1-cp-0-of-16-test/distill-dyna-cp-dyna-0-of-1-cp-0-of-16-test.parquet"
 )
 
 # --- Tokenize ---
@@ -86,7 +86,7 @@ tokenized_dataset = dataset.map(
 
 # --- Save directly to parquet ---
 tokenized_dataset["train"].to_parquet(
-    "data/distillOlmo/distill-dyna-dolma-dyna-0-of-1-dolma-0-of-64-train_tokenized.parquet"
+    "data/distillOlmo/distill-dyna-cp-dyna-0-of-1-cp-0-of-16-test/distill-dyna-cp-dyna-0-of-1-cp-0-of-16-test_tokenized.parquet"
 )
 
-print("Saved Parquet:", "data/distillOlmo/distill-dyna-dolma-dyna-0-of-1-dolma-0-of-64-train_tokenized.parquet")
+print("Saved Parquet:", "data/distillOlmo/distill-dyna-cp-dyna-0-of-1-cp-0-of-16-test/distill-dyna-cp-dyna-0-of-1-cp-0-of-16-test_tokenized.parquet")

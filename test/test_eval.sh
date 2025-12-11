@@ -4,9 +4,9 @@
 
 # Define your lists # 
 DATASETS=("depbank" "jvj" "synne" "nordjyllandnews" "enwiki-2025_tokenizedRight.json" "github-python-2025_tokenizedRight.json")
-CHECKPOINTS=("")
+CHECKPOINTS=("../checkpoints/packed/olmo1b_NOdistill_dyna-dolma_def/")
 FOLDER="continual"
-MODEL="../production/models/munin-7b-open-stage3/step-18926"
+MODEL="../checkpoints/packed/olmo1b_NOdistill_dyna-dolma_def/"
 
 echo "$(readlink -f "$MODEL")"
 
@@ -32,7 +32,7 @@ for dataset in "${DATASETS[@]}"; do
       python only_eval_noacc.py \
         --val-data-files "../../data/rasmus-data/$dataset" \
         --batch-size 2 \
-        --max-seq-length 2048 \
+        --max-seq-length 1024 \
         --val-steps -1 \
         --student "$MODEL" \
         #--tokenized \
@@ -43,7 +43,7 @@ for dataset in "${DATASETS[@]}"; do
       python only_eval_noacc.py \
         --val-data-files "../../data/valid-dyna/$dataset" \
         --batch-size 2 \
-        --max-seq-length 2048 \
+        --max-seq-length 1024 \
         --val-steps -1 \
         --student "$MODEL" \
         #--tokenized \

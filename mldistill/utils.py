@@ -207,12 +207,16 @@ class CheckPointer():
         save_template: str,
         save_every: int = 200,
         disable: bool = False,
+        optimizer=None,
+        scheduler=None
     ) -> None:
         self.model = model
         self.save_path = Path(save_path)
         self.save_template = save_template
         self.save_every = save_every
         self.disable = disable
+        self.optimizer = optimizer
+        self.scheduler = scheduler
         self.save_path.mkdir(parents=True, exist_ok=True)
 
     def maybe_save(
@@ -228,7 +232,17 @@ class CheckPointer():
     ) -> None:
         if not self.disable:
             checkpoint_file = self.save_path / self.save_template.format(step=step)
-            torch.save(self.model.state_dict(), checkpoint_file)
+        
+            # Save full training state
+            torch.save({
+                'model_state_dict': self.model.state_dict(),
+                'optimizer_state_dict': self.optimizer.state_dict(),
+                'scheduler_state_dict': self.scheduler.state_dict() if self.scheduler else None,
+                'step': step,
+                'rng_state': torch.get_rng_state(),
+                'cuda_rng_state': torch.cuda.get_rng_state_all()
+            }, checkpoint_file)
+            
             print(f"Saved checkpoint: {checkpoint_file}")
 
 def collate_fn(

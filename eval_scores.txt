@@ -82,3 +82,8 @@
 {'avg_ce_loss_per_token': 1.235460877418518, 'ppl': 3.4399635791778564, 'num_tokens_seen': 50792826, 'model_name': '../production/models/munin-7b-open-stage3/step-18926', 'checkpoint': None, 'val_data_files': ('../../data/valid-dyna/nordjyllandnews',), 'max_seq_length': 2048, 'val_steps': None}
 {'avg_ce_loss_per_token': 1.8251415491104126, 'ppl': 6.203673362731934, 'num_tokens_seen': 367003, 'model_name': '../production/models/munin-7b-open-stage3/step-18926', 'checkpoint': None, 'val_data_files': ('../../data/rasmus-data/enwiki-2025_tokenizedRight.json',), 'max_seq_length': 2048, 'val_steps': None}
 {'avg_ce_loss_per_token': 1.0002267360687256, 'ppl': 2.718898296356201, 'num_tokens_seen': 1021517, 'model_name': '../production/models/munin-7b-open-stage3/step-18926', 'checkpoint': None, 'val_data_files': ('../../data/rasmus-data/github-python-2025_tokenizedRight.json',), 'max_seq_length': 2048, 'val_steps': None}
+
+
+
+
+## new distillation olmo experiments
