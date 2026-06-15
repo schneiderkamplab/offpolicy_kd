@@ -66,12 +66,11 @@ def tokenize_function(examples):
         padding="max_length",
         max_length=2048,
     )
-
+path ="data/distillOlmo/distill-dyna-dolma-dyna-0-of-1-dolma-0-of-159-train/distill-dyna-dolma-dyna-0-of-1-dolma-0-of-159-train.parquet"
 # --- Load dataset from parquet ---
 dataset = load_dataset(
     "parquet",
-    data_files="data/distillOlmo/distill-dyna-cp-dyna-0-of-1-cp-0-of-16-test/distill-dyna-cp-dyna-0-of-1-cp-0-of-16-test.parquet"
-)
+    data_files=path)
 
 # --- Tokenize ---
 tokenized_dataset = dataset.map(
@@ -83,10 +82,10 @@ tokenized_dataset = dataset.map(
     desc="Tokenizing dataset",   # <-- this labels the HF progress bar
 
 )
+save_path = path
 
 # --- Save directly to parquet ---
 tokenized_dataset["train"].to_parquet(
-    "data/distillOlmo/distill-dyna-cp-dyna-0-of-1-cp-0-of-16-test/distill-dyna-cp-dyna-0-of-1-cp-0-of-16-test_tokenized.parquet"
-)
+save_path)
 
-print("Saved Parquet:", "data/distillOlmo/distill-dyna-cp-dyna-0-of-1-cp-0-of-16-test/distill-dyna-cp-dyna-0-of-1-cp-0-of-16-test_tokenized.parquet")
+print("Saved Parquet:", save_path)

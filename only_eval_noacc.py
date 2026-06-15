@@ -13,6 +13,7 @@ from functools import partial
 from transformers import AutoModelForCausalLM, AutoConfig, get_scheduler
 from pathlib import Path
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 __all__ = ["main"]
 @click.command()
@@ -41,13 +42,15 @@ def _main(args, student, val_data_files, load_checkpoint, attn_implementation, m
         return tokenizer(examples['text'], truncation=True, max_length=2048)
     val_datasets = load_datasets(val_data_files)
     val_combined_dataset = concatenate_datasets(val_datasets)
+    print(f"{tokenized=}")
 
     if tokenized is None:
 
-        tokenizer = AutoTokenizer.from_pretrained(student)
+        tokenizer = AutoTokenizer.from_pretrained(student, trust_remote_code=True)
         if tokenizer.pad_token is None:
             tokenizer.pad_token_id = tokenizer.eos_token_id
         ignore_index = tokenizer.pad_token_id
+        pad_token_id = tokenizer.pad_token_id
         tokenizer.padding_side = "right"
         tokenized_dataset = val_combined_dataset.map(tokenize_fn, batched=True, remove_columns=['text'])
 
@@ -64,7 +67,7 @@ def _main(args, student, val_data_files, load_checkpoint, attn_implementation, m
 
     
 
-    _collate_fn = partial(collate_fn, max_seq_length=max_seq_length)
+    _collate_fn = partial(collate_fn, max_seq_length=max_seq_length, pad_token_id=pad_token_id)
     val_sampler = RandomSampler(val_datasets, seed=seed)
     val_loader = DataLoader(tokenized_dataset, sampler=val_sampler, batch_size=batch_size, shuffle=False, collate_fn=_collate_fn, num_workers=0)
     print("Done.")
@@ -72,14 +75,17 @@ def _main(args, student, val_data_files, load_checkpoint, attn_implementation, m
     ##################
     ### LOAD MODEL ###
     ##################
-    print("Loading model from {student}")
-    student_config = AutoConfig.from_pretrained(student)
+    print(f"Loading model from {student}")
+    student_config = AutoConfig.from_pretrained(student, trust_remote_code=True)
     student_config.attn_implementation = attn_implementation
     student_config.max_position_embeddings = max_seq_length
-    student_model = AutoModelForCausalLM.from_pretrained(student, config=student_config, attn_implementation='eager')
+    student_model = AutoModelForCausalLM.from_pretrained(student, config=student_config, attn_implementation='eager', trust_remote_code=True)
     
     if load_checkpoint is not None:
+        print(f"Loading checkpoint from {load_checkpoint}")
         state_dict = torch.load(load_checkpoint, map_location="cpu")
+        if "model_state_dict" in state_dict:
+            state_dict = state_dict["model_state_dict"]
         new_state_dict = {}
         for k, v in state_dict.items():
             if k.startswith("_orig_mod."):
@@ -89,7 +95,7 @@ def _main(args, student, val_data_files, load_checkpoint, attn_implementation, m
             else:
                 new_k = k
             new_state_dict[new_k] = v
-        student_model.load_state_dict(new_state_dict, strict=False)
+        student_model.load_state_dict(new_state_dict, strict=True)
 
     else:
         print("No checkpoint provided to load the model from.")
@@ -138,7 +144,7 @@ def evaluate_perplexity(
     ce_loss_fn = nn.CrossEntropyLoss(reduction="none", ignore_index=ignore_index) 
 
     with torch.no_grad():
-        for i, batch in enumerate(loader):
+        for i, batch in tqdm(enumerate(loader)):
 
             input_ids = batch["input_ids"]
             attention_mask = batch["attention_mask"]
@@ -252,11 +258,12 @@ class RandomSampler(Sampler):
 def collate_fn(
     batch: list[dict[str, torch.Tensor]],
     max_seq_length: int = 4096,   # All of our models should be able to handle this length
+    pad_token_id: int = 0,
 ) -> dict[str, torch.Tensor]:
     input_ids = [torch.tensor(item['input_ids'][:max_seq_length]) for item in batch]
     # Make sure we also use right-padding here. (it is the default but better have it fixed)
-    input_ids_padded = pad_sequence(input_ids, batch_first=True, padding_value=0, padding_side="right")
-    attention_mask = (input_ids_padded != 0).long()   
+    input_ids_padded = pad_sequence(input_ids, batch_first=True, padding_value=pad_token_id, padding_side="right")
+    attention_mask = (input_ids_padded != pad_token_id).long()   
     return {
         'input_ids': input_ids_padded,
         'attention_mask': attention_mask

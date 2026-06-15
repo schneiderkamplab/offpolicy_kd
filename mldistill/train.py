@@ -148,6 +148,8 @@ class Trainer():
         losses_acc /= count
         perplexity = calculate_perplexity(losses_acc[1])
 
+        self.student_model.train()
+
         return {
             "loss": losses_acc[0].item(),
             "ce_loss": losses_acc[1].item(),
@@ -176,10 +178,16 @@ class Trainer():
         self.kl_loss_fn = self.kl_loss_fn.to(teacher_device)
         self.tokens = self.tokens.to(teacher_device)
         eval_result = self.evaluate(num_steps=self.val_steps)
+        print("initial step:", self.step)
         self.val_logger.log(step=self.step, **eval_result)
         losses = torch.zeros(3, device=teacher_device, dtype=torch.float32)
         tokens = torch.tensor(0, device=teacher_device, dtype=torch.int64)
-        progress_bar = tqdm(self.train_loader, unit="batches", total=self.max_steps)
+        # progress_bar = tqdm(self.train_loader, unit="batches", total=self.max_steps)
+        progress_bar = tqdm(
+            total=self.max_steps,
+            initial=self.step,
+            unit="batches"
+        )
 
 
         for epoch in range(num_epochs):

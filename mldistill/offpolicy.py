@@ -93,10 +93,20 @@ def distill(
         if load_checkpoint is None:
             initial_step = 0
         else:
+            ckpt = torch.load(load_checkpoint, map_location="cpu")
+
+            # Model
+            model_state = {
+                k.removeprefix("module."): v
+                for k, v in ckpt["model_state_dict"].items()
+            }
+            student_model.load_state_dict(model_state)
             initial_step = int(Path(load_checkpoint).stem.split("step")[-1])
-            state_dict = torch.load(load_checkpoint, map_location="cpu")
-            state_dict = {k.removeprefix("module."): v for k, v in state_dict.items()}
-            student_model.load_state_dict(state_dict)
+            # state_dict = torch.load(load_checkpoint, map_location="cpu")
+            # state_dict = {k.removeprefix("module."): v for k, v in state_dict.items()}
+            
+            # student_model.load_state_dict(state_dict)
+
     if initial_step:
         with timing(times, key="timing/fast_forward_val_loader"):
             skip_vals = initial_step // val_steps # skip initial evaluation, too
@@ -131,12 +141,48 @@ def distill(
                 num_warmup_steps=0 if warmup_steps is None else int(max_steps * warmup_steps),
                 num_training_steps=max_steps,
             )
+
+
+
+            
             if offload_teacher and teacher_model:
                 train_loader, val_loader, student_model, optimizer = accelerator.prepare(train_loader, val_loader, student_model, optimizer)
                 teacher_model.to(inc_device(student_model.device, world_size))
             else:
-                
                 train_loader, val_loader, student_model, optimizer, teacher_model = accelerator.prepare(train_loader, val_loader, student_model, optimizer, teacher_model)
+            
+            
+            if load_checkpoint is not None:
+                ckpt = torch.load(load_checkpoint, map_location="cpu")
+
+                # Model
+                model_state = {
+                    k.removeprefix("module."): v
+                    for k, v in ckpt["model_state_dict"].items()
+                }
+                student_model.module.load_state_dict(model_state, strict=True)
+
+
+
+                # Optimizer
+                optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+
+                # Scheduler
+                lr_scheduler.load_state_dict(ckpt["scheduler_state_dict"])
+
+                # Step
+                initial_step = ckpt["step"]
+
+                # RNG (important for continual pretraining)
+                torch.set_rng_state(ckpt["rng_state"])
+                if torch.cuda.is_available():
+                    torch.cuda.set_rng_state_all(ckpt["cuda_rng_state"])
+            else:
+                initial_step = 0
+
+            
+            
+            
             if compile:
                 student_model = torch.compile(student_model)
                 if teacher_model is not None:

@@ -6,8 +6,8 @@
 #DATASETS=("nordjyllandnews")
 DATASETS=("depbank" "jvj" "synne" "enwiki-2025_tokenizedRight.json" "github-python-2025_tokenizedRight.json" "nordjyllandnews")
 #CHECKPOINTS=("olmo1b_NOdistill_dyna_dyna") #
-CHECKPOINTS=("dyna_commonpile_continual") # "olmo1b_distill1b_dyna-dyna" "olmo1b_NOdistill_dyna_dyna_afterstop" "olmo1b_NOdistill_dyna-cp_def"
-FOLDER="continual" #
+CHECKPOINTS=("dyna_commonpile") # "olmo1b_distill1b_dyna-dyna" "olmo1b_NOdistill_dyna_dyna_afterstop" "olmo1b_NOdistill_dyna-cp_def"
+FOLDER="offpolicy" #
 MODEL="models/gemma-3-1b-pt" # THIS IS GEMMA CAREFUL!
 
 echo "$(readlink -f "$MODEL")"
@@ -37,7 +37,7 @@ for dataset in "${DATASETS[@]}"; do
         --max-seq-length 1024 \
         --student "$MODEL" \
         --tokenized \
-        --load-checkpoint "checkpoints/$FOLDER/$checkpoint/student_step${step}.pt"
+        --load-checkpoint "checkpoints/$FOLDER/$checkpoint/student_step15700.pt"
         # --val-steps 128 \
 
     else
@@ -47,8 +47,9 @@ for dataset in "${DATASETS[@]}"; do
         --batch-size 2 \
         --max-seq-length 1024 \
         --student "$MODEL" \
-        --load-checkpoint "checkpoints/$FOLDER/$checkpoint/student_step${step}.pt"
+        --load-checkpoint "checkpoints/$FOLDER/$checkpoint/student_step15700.pt"
         #--tokenized \
+        #
         # --val-steps 128 \
     fi
 
